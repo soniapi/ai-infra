@@ -78,3 +78,38 @@ pub fn errors() -> Result<(), Box<dyn Error>> {
     Err(Box::new(BaseError(message.to_string())))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calamine::DataType;
+
+    #[test]
+    fn test_convert_float() {
+        let data = DataType::Float(3.14);
+        assert_eq!(convert(&data), Some(3.14));
+    }
+
+    #[test]
+    fn test_convert_int() {
+        let data = DataType::Int(42);
+        assert_eq!(convert(&data), None);
+    }
+
+    #[test]
+    fn test_convert_string() {
+        let data = DataType::String("hello".to_string());
+        assert_eq!(convert(&data), None);
+    }
+
+    #[test]
+    fn test_convert_bool() {
+        let data = DataType::Bool(true);
+        assert_eq!(convert(&data), None);
+    }
+
+    #[test]
+    fn test_convert_empty() {
+        let data = DataType::Empty;
+        assert_eq!(convert(&data), None);
+    }
+}
