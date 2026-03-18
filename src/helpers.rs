@@ -15,7 +15,7 @@ pub fn print_type<T>(_: &T) {
     println!("Type is: {}", type_name::<T>());
 }
 
-pub fn inputs_option_from<R: BufRead>(reader: &mut R) -> Option<String> {
+pub fn read_input_option<R: BufRead>(reader: &mut R) -> Option<String> {
     let mut o = String::new();
 
     match reader.read_line(&mut o) {
@@ -34,6 +34,13 @@ pub fn inputs_option_from<R: BufRead>(reader: &mut R) -> Option<String> {
 }
 
 pub fn inputs_option() -> Option<String> {
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    read_input_option(&mut handle)
+}
+
+pub fn inputs() -> (String, String, Option<String>, Option<i32>) {
+    let mut stdout = io::stdout();
     let stdin = io::stdin();
     let mut handle = stdin.lock();
     inputs_option_from(&mut handle)
@@ -120,6 +127,48 @@ mod tests {
     fn test_convert_empty() {
         let data = DataType::Empty;
         assert_eq!(convert(&data), None);
+    }
+
+    #[test]
+    fn test_read_input_option_happy_path() {
+        let input = b"valid input\n";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), Some("valid input".to_string()));
+    }
+
+    #[test]
+    fn test_read_input_option_trim_whitespace() {
+        let input = b"  test   \n";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), Some("  test".to_string()));
+    }
+
+    #[test]
+    fn test_read_input_option_empty_string() {
+        let input = b"\n";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), None);
+    }
+
+    #[test]
+    fn test_read_input_option_whitespace_only() {
+        let input = b"   \n";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), None);
+    }
+
+    #[test]
+    fn test_read_input_option_eof() {
+        let input = b"";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), None);
+    }
+
+    #[test]
+    fn test_read_input_option_no_newline() {
+        let input = b"no newline";
+        let mut reader = &input[..];
+        assert_eq!(read_input_option(&mut reader), Some("no newline".to_string()));
     }
 }
 
