@@ -42,32 +42,43 @@ pub fn inputs_option() -> Option<String> {
 pub fn inputs() -> (String, String, Option<String>, Option<i32>) {
     let mut stdout = io::stdout();
     let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    inputs_option_from(&mut handle)
+}
 
-    stdout.flush().expect("Failed to flush stdout");
-    println!("Enter your file path:");
+pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (String, String, Option<String>, Option<i32>) {
+    writer.flush().expect("Failed to flush stdout");
+    writeln!(writer, "Enter your file path:").unwrap();
     let mut f = String::new();
-    stdin.read_line(&mut f).expect("Read line failed");
+    reader.read_line(&mut f).expect("Read line failed");
     let trimmed_f = f.trim().to_string();
-    println!("Your input:{:?}", trimmed_f);
+    writeln!(writer, "Your input:{:?}", trimmed_f).unwrap();
 
-    stdout.flush().expect("Failed to flush stdout");
-    println!("Enter your file tab:");
+    writer.flush().expect("Failed to flush stdout");
+    writeln!(writer, "Enter your file tab:").unwrap();
     let mut t = String::new();
-    stdin.read_line(&mut t).expect("Read line failed");
+    reader.read_line(&mut t).expect("Read line failed");
     let trimmed_t = t.trim().to_string();
-    println!("Your input:{:?}", trimmed_t);
+    writeln!(writer, "Your input:{:?}", trimmed_t).unwrap();
 
-    stdout.flush().expect("Failed to flush stdout");
-    println!("Enter your partition type (no partition press enter):");
-    let trimmed_p: Option<String> = inputs_option();
-    println!("Your input {:?}", trimmed_p);
+    writer.flush().expect("Failed to flush stdout");
+    writeln!(writer, "Enter your partition type (no partition press enter):").unwrap();
+    let trimmed_p: Option<String> = inputs_option_from(reader);
+    writeln!(writer, "Your input {:?}", trimmed_p).unwrap();
 
-    stdout.flush().expect("Failed to flush stdout");
-    println!("Enter how many rows to deserialize (all rows press enter):");
-    let trimmed_r: Option<i32> = inputs_option().and_then(|trimmed_r| trimmed_r.parse::<i32>().ok());
-    println!("Your input {:?}", trimmed_r);
+    writer.flush().expect("Failed to flush stdout");
+    writeln!(writer, "Enter how many rows to deserialize (all rows press enter):").unwrap();
+    let trimmed_r: Option<i32> = inputs_option_from(reader).and_then(|trimmed_r| trimmed_r.parse::<i32>().ok());
+    writeln!(writer, "Your input {:?}", trimmed_r).unwrap();
 
     (trimmed_f, trimmed_t, trimmed_p, trimmed_r)
+}
+
+pub fn inputs() -> (String, String, Option<String>, Option<i32>) {
+    let mut stdout = io::stdout();
+    let stdin = io::stdin();
+    let mut handle = stdin.lock();
+    inputs_from(&mut handle, &mut stdout)
 }
 
 pub fn errors() -> Result<(), Box<dyn Error>> {
@@ -158,5 +169,93 @@ mod tests {
         let input = b"no newline";
         let mut reader = &input[..];
         assert_eq!(read_input_option(&mut reader), Some("no newline".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod io_tests {
+    use super::*;
+
+    #[test]
+    fn test_inputs_option_from_empty() {
+        let mut reader = &b""[..];
+        assert_eq!(inputs_option_from(&mut reader), None);
+    }
+
+    #[test]
+    fn test_inputs_option_from_newline_only() {
+        let mut reader = &b"\n"[..];
+        assert_eq!(inputs_option_from(&mut reader), None);
+    }
+
+    #[test]
+    fn test_inputs_option_from_spaces() {
+        let mut reader = &b"   \n"[..];
+        // trim_end trims spaces too
+        assert_eq!(inputs_option_from(&mut reader), None);
+    }
+
+    #[test]
+    fn test_inputs_option_from_valid() {
+        let mut reader = &b"hello\n"[..];
+        assert_eq!(inputs_option_from(&mut reader), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_inputs_option_from_valid_with_spaces() {
+        let mut reader = &b"  hello world  \n"[..];
+        assert_eq!(inputs_option_from(&mut reader), Some("  hello world".to_string()));
+    }
+
+    #[test]
+    fn test_inputs_from_all_provided() {
+        let mut reader = &b"my_file.xlsx\nSheet1\npart_1\n100\n"[..];
+        let mut writer = Vec::new();
+        let (f, t, p, r) = inputs_from(&mut reader, &mut writer);
+
+        assert_eq!(f, "my_file.xlsx");
+        assert_eq!(t, "Sheet1");
+        assert_eq!(p, Some("part_1".to_string()));
+        assert_eq!(r, Some(100));
+
+        let output = String::from_utf8(writer).unwrap();
+        assert!(output.contains("Enter your file path:"));
+        assert!(output.contains("Your input:\"my_file.xlsx\""));
+        assert!(output.contains("Enter your file tab:"));
+        assert!(output.contains("Your input:\"Sheet1\""));
+        assert!(output.contains("Enter your partition type (no partition press enter):"));
+        assert!(output.contains("Your input Some(\"part_1\")"));
+        assert!(output.contains("Enter how many rows to deserialize (all rows press enter):"));
+        assert!(output.contains("Your input Some(100)"));
+    }
+
+    #[test]
+    fn test_inputs_from_optional_missing() {
+        let mut reader = &b"my_file.xlsx\nSheet1\n\n\n"[..];
+        let mut writer = Vec::new();
+        let (f, t, p, r) = inputs_from(&mut reader, &mut writer);
+
+        assert_eq!(f, "my_file.xlsx");
+        assert_eq!(t, "Sheet1");
+        assert_eq!(p, None);
+        assert_eq!(r, None);
+
+        let output = String::from_utf8(writer).unwrap();
+        assert!(output.contains("Your input None"));
+    }
+
+    #[test]
+    fn test_inputs_from_invalid_integer() {
+        let mut reader = &b"my_file.xlsx\nSheet1\npart_1\nnot_a_number\n"[..];
+        let mut writer = Vec::new();
+        let (f, t, p, r) = inputs_from(&mut reader, &mut writer);
+
+        assert_eq!(f, "my_file.xlsx");
+        assert_eq!(t, "Sheet1");
+        assert_eq!(p, Some("part_1".to_string()));
+        assert_eq!(r, None);
+
+        let output = String::from_utf8(writer).unwrap();
+        assert!(output.contains("Your input None"));
     }
 }
