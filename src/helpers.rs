@@ -60,12 +60,12 @@ pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (Str
 
     writer.flush().expect("Failed to flush stdout");
     writeln!(writer, "Enter your partition type (no partition press enter):").unwrap();
-    let trimmed_p: Option<String> = inputs_option_from(reader);
+    let trimmed_p: Option<String> = read_input_option(reader);
     writeln!(writer, "Your input {:?}", trimmed_p).unwrap();
 
     writer.flush().expect("Failed to flush stdout");
     writeln!(writer, "Enter how many rows to deserialize (all rows press enter):").unwrap();
-    let trimmed_r: Option<i32> = inputs_option_from(reader).and_then(|trimmed_r| trimmed_r.parse::<i32>().ok());
+    let trimmed_r: Option<i32> = read_input_option(reader).and_then(|trimmed_r: String| trimmed_r.parse::<i32>().ok());
     writeln!(writer, "Your input {:?}", trimmed_r).unwrap();
 
     (trimmed_f, trimmed_t, trimmed_p, trimmed_r)
@@ -176,32 +176,32 @@ mod io_tests {
     #[test]
     fn test_inputs_option_from_empty() {
         let mut reader = &b""[..];
-        assert_eq!(inputs_option_from(&mut reader), None);
+        assert_eq!(read_input_option(&mut reader), None);
     }
 
     #[test]
     fn test_inputs_option_from_newline_only() {
         let mut reader = &b"\n"[..];
-        assert_eq!(inputs_option_from(&mut reader), None);
+        assert_eq!(read_input_option(&mut reader), None);
     }
 
     #[test]
     fn test_inputs_option_from_spaces() {
         let mut reader = &b"   \n"[..];
         // trim_end trims spaces too
-        assert_eq!(inputs_option_from(&mut reader), None);
+        assert_eq!(read_input_option(&mut reader), None);
     }
 
     #[test]
     fn test_inputs_option_from_valid() {
         let mut reader = &b"hello\n"[..];
-        assert_eq!(inputs_option_from(&mut reader), Some("hello".to_string()));
+        assert_eq!(read_input_option(&mut reader), Some("hello".to_string()));
     }
 
     #[test]
     fn test_inputs_option_from_valid_with_spaces() {
         let mut reader = &b"  hello world  \n"[..];
-        assert_eq!(inputs_option_from(&mut reader), Some("  hello world".to_string()));
+        assert_eq!(read_input_option(&mut reader), Some("  hello world".to_string()));
     }
 
     #[test]
