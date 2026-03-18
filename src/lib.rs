@@ -83,3 +83,75 @@ pub fn fill_partitions() {
         } 
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn get_test_connection() -> PgConnection {
+        let mut conn = establish_connection();
+        conn.begin_test_transaction().unwrap();
+        conn
+    }
+
+    #[test]
+    fn test_create_object_none_partition() {
+        let mut conn = get_test_connection();
+        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let t = "test_t".to_string();
+        let p = 1.0;
+        let s = 2.0;
+        let c = 3.0;
+
+        let result = create_object(&mut conn, None, &d, &t, &p, &s, &c);
+        assert!(result.is_ok());
+
+        if let Ok(ObjectType::None(obj)) = result {
+            assert_eq!(obj.d, d);
+            assert_eq!(obj.t, t);
+            assert_eq!(obj.p, p);
+            assert_eq!(obj.s, s);
+            assert_eq!(obj.c, c);
+        } else {
+            panic!("Expected ObjectType::None");
+        }
+    }
+
+    #[test]
+    fn test_create_object_some_s_partition() {
+        let mut conn = get_test_connection();
+        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let t = "test_s".to_string();
+        let p = 4.0;
+        let s = 5.0;
+        let c = 6.0;
+
+        let partition_val = "s".to_string();
+        let result = create_object(&mut conn, Some(&partition_val), &d, &t, &p, &s, &c);
+        assert!(result.is_ok());
+
+        if let Ok(ObjectType::S(obj)) = result {
+            assert_eq!(obj.d, d);
+            assert_eq!(obj.t, t);
+            assert_eq!(obj.p, p);
+            assert_eq!(obj.s, s);
+            assert_eq!(obj.c, c);
+        } else {
+            panic!("Expected ObjectType::S");
+        }
+    }
+
+    #[test]
+    fn test_create_object_invalid_partition() {
+        let mut conn = get_test_connection();
+        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let t = "test_invalid".to_string();
+        let p = 7.0;
+        let s = 8.0;
+        let c = 9.0;
+
+        let partition_val = "invalid".to_string();
+        let result = create_object(&mut conn, Some(&partition_val), &d, &t, &p, &s, &c);
+        assert!(result.is_err());
+    }
+}
