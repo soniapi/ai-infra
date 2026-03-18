@@ -54,7 +54,13 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
 pub fn fill_partitions() {
     let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
-    let mut excel: Xlsx<_> = open_workbook(f).unwrap();
+    let mut excel: Xlsx<_> = match open_workbook(&f) {
+        Ok(workbook) => workbook,
+        Err(e) => {
+            println!("Error opening workbook {}: {}", f, e);
+            return;
+        }
+    };
 
     match r {
         Some(limit) => {
