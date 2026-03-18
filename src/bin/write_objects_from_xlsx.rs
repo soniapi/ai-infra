@@ -16,11 +16,22 @@ fn main() {
         }
     };
 
+    let limit = r.unwrap_or(i32::MAX);
+
     if let Some(Ok(range)) = excel.worksheet_range(&t) {
-        for row in range.rows().skip(1).take(r.unwrap() as usize) {
-            println!("Check you PostgreSQL table for below object insertion");
-            println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
-            let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), helpers::convert(&row[2]).as_ref().unwrap(), helpers::convert(&row[3]).as_ref().unwrap(), &0.0);
+        for row in range.rows().skip(1).take(limit as usize) {
+            if let (Some(d), Some(t_str), Some(p_val), Some(s_val)) = (
+                row[0].as_datetime(),
+                row[1].as_string(),
+                helpers::convert(&row[2]),
+                helpers::convert(&row[3]),
+            ) {
+                println!("Check you PostgreSQL table for below object insertion");
+                println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_str, p_val, s_val);
+                let _ = create_object(connection, p.as_ref(), &d, &t_str, &p_val, &s_val, &0.0);
+            } else {
+                println!("Skipping row due to invalid data: {:?}", row);
+            }
         }
     }
     else {
