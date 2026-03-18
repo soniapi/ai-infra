@@ -51,6 +51,38 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
     }
 }
 
+pub fn create_objects(connection: &mut PgConnection, partition: Option<&String>, objects_data: &[(NaiveDateTime, String, f32, f32, f32)]) -> Result<(), Box<dyn Error>> {
+    if objects_data.is_empty() {
+        return Ok(());
+    }
+
+    match partition {
+        None => {
+            use crate::schema::objects;
+            let new_objects: Vec<NewObject> = objects_data.iter().map(|(d, t, p, s, c)| {
+                NewObject { d, t, p, s, c }
+            }).collect();
+            diesel::insert_into(objects::table)
+                .values(&new_objects)
+                .execute(connection)
+                .expect("Error saving new objects");
+            Ok(())
+        },
+        Some(value) if value == "s" => {
+            use crate::schema::objects_s;
+            let new_objects_s: Vec<NewObjectS> = objects_data.iter().map(|(d, t, p, s, c)| {
+                NewObjectS { d, t, p, s, c }
+            }).collect();
+            diesel::insert_into(objects_s::table)
+                .values(&new_objects_s)
+                .execute(connection)
+                .expect("Error saving new objects_s in partitioned table");
+            Ok(())
+        },
+        _ => Err("Error".into()),
+    }
+}
+
 pub fn fill_partitions() {
     let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
