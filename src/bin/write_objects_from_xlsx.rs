@@ -8,7 +8,13 @@ fn main() {
 
     let (f, t, p, r) = helpers::inputs();
 
-    let mut excel: Xlsx<_> = open_workbook(f).unwrap();
+    let mut excel: Xlsx<_> = match open_workbook(&f) {
+        Ok(workbook) => workbook,
+        Err(e) => {
+            println!("Error opening workbook {}: {}", f, e);
+            return;
+        }
+    };
 
     if let Some(Ok(range)) = excel.worksheet_range(&t) {
         for row in range.rows().skip(1).take(r.unwrap() as usize) {
