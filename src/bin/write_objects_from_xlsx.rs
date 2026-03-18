@@ -3,11 +3,8 @@ use infra::{establish_connection, create_object};
 
 use infra::helpers;
 
-use std::error::Error;
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut connection = establish_connection()?;
-    let connection = &mut connection;
+fn main() {
+    let connection = &mut establish_connection();
 
     let (f, t, p, r) = helpers::inputs();
 
@@ -15,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(workbook) => workbook,
         Err(e) => {
             println!("Error opening workbook {}: {}", f, e);
-            return;
+            std::process::exit(1);
         }
     };
 
@@ -29,6 +26,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     else {
         println!("Can't find the file.");
     }
-    Ok(())
 }
 

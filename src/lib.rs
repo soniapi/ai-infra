@@ -15,11 +15,11 @@ pub enum ObjectType {
     S(ObjectS),
 }
 
-pub fn establish_connection() -> Result<PgConnection, Box<dyn Error>> {
+pub fn establish_connection() -> PgConnection {
     dotenv().ok();
 
-    let database_url = env::var("DATABASE_URL")?;
-    Ok(PgConnection::establish(&database_url)?)
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    PgConnection::establish(&database_url).unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
 use self::models::{NewObject, Object, NewObjectS, ObjectS};
@@ -51,11 +51,10 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
     }
 }
 
-pub fn fill_partitions() -> Result<(), Box<dyn Error>> {
-    let mut connection = establish_connection()?;
-    let connection = &mut connection;
+pub fn fill_partitions() {
+    let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
-    let mut excel: Xlsx<_> = open_workbook(f)?;
+    let mut excel: Xlsx<_> = open_workbook(f).unwrap();
 
     match r {
         Some(limit) => {
@@ -83,5 +82,4 @@ pub fn fill_partitions() -> Result<(), Box<dyn Error>> {
             }
         } 
     }
-    Ok(())
 }
