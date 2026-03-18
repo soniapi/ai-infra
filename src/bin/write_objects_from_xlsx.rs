@@ -1,5 +1,5 @@
 use calamine::{Xlsx, open_workbook, Reader};
-use infra::{establish_connection, create_object};
+use infra::{establish_connection, create_objects};
 
 use infra::helpers;
 
@@ -17,10 +17,26 @@ fn main() {
     };
 
     if let Some(Ok(range)) = excel.worksheet_range(&t) {
-        for row in range.rows().skip(1).take(r.unwrap() as usize) {
-            println!("Check you PostgreSQL table for below object insertion");
-            println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
-            let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), helpers::convert(&row[2]).as_ref().unwrap(), helpers::convert(&row[3]).as_ref().unwrap(), &0.0);
+        let rows: Vec<_> = range.rows().skip(1).take(r.unwrap_or(std::i32::MAX) as usize).collect();
+        let mut batch = Vec::with_capacity(rows.len());
+
+        for row in rows.into_iter() {
+            let d = row[0].as_datetime().unwrap();
+            let t_str = row[1].as_string().unwrap().to_string();
+            let p_val = helpers::convert(&row[2]).unwrap();
+            let s_val = helpers::convert(&row[3]).unwrap();
+
+            batch.push(infra::OwnedObject {
+                d,
+                t: t_str,
+                p: p_val,
+                s: s_val,
+                c: 0.0,
+            });
+        }
+
+        if !batch.is_empty() {
+            let _ = create_objects(connection, p.as_ref(), &batch);
         }
     }
     else {

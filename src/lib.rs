@@ -51,6 +51,70 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
     }
 }
 
+pub struct OwnedObject {
+    pub d: NaiveDateTime,
+    pub t: String,
+    pub p: f32,
+    pub s: f32,
+    pub c: f32,
+}
+
+pub fn create_objects(connection: &mut PgConnection, partition: Option<&String>, objects: &[OwnedObject]) -> Result<usize, Box<dyn Error>> {
+    match partition {
+        None => {
+            println!("No partition, inserting {} objects", objects.len());
+            use crate::schema::objects;
+            let mut inserted_count = 0;
+
+            let new_objects: Vec<NewObject> = objects.iter().map(|o| NewObject {
+                d: &o.d,
+                t: &o.t,
+                p: &o.p,
+                s: &o.s,
+                c: &o.c,
+            }).collect();
+
+            // PostgreSQL has a limit of 65535 parameters per query.
+            // We have 5 parameters per object, so we can insert at most 13107 objects at a time.
+            for chunk in new_objects.chunks(10000) {
+                match diesel::insert_into(objects::table)
+                    .values(chunk)
+                    .execute(connection)
+                {
+                    Ok(count) => inserted_count += count,
+                    Err(e) => println!("Error saving new objects chunk: {}", e),
+                }
+            }
+            Ok(inserted_count)
+        },
+        Some(value) if value == "s" => {
+            println!("Partition: {:?}, inserting {} objects", value, objects.len());
+            use crate::schema::objects_s;
+            let mut inserted_count = 0;
+
+            let new_objects: Vec<NewObjectS> = objects.iter().map(|o| NewObjectS {
+                d: &o.d,
+                t: &o.t,
+                p: &o.p,
+                s: &o.s,
+                c: &o.c,
+            }).collect();
+
+            for chunk in new_objects.chunks(10000) {
+                match diesel::insert_into(objects_s::table)
+                    .values(chunk)
+                    .execute(connection)
+                {
+                    Ok(count) => inserted_count += count,
+                    Err(e) => println!("Error saving new objects_s chunk in partitioned table: {}", e),
+                }
+            }
+            Ok(inserted_count)
+        },
+        _ => Err("Error".into()),
+    }
+}
+
 pub fn fill_partitions() {
     let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
@@ -59,11 +123,27 @@ pub fn fill_partitions() {
     match r {
         Some(limit) => {
             if let Some(Ok(range)) = excel.worksheet_range(&t) {
-                for row in range.rows().skip(1).take(limit as usize) {
-                    println!("Check you PostgreSQL table for below object insertion");
-                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
-                    let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), convert(&row[2]).as_ref().unwrap(), convert(&row[3]).as_ref().unwrap(), &0.0);
-                 }
+                let rows: Vec<_> = range.rows().skip(1).take(limit as usize).collect();
+                let mut batch = Vec::with_capacity(rows.len());
+
+                for row in rows.into_iter() {
+                    let d = row[0].as_datetime().unwrap();
+                    let t_str = row[1].as_string().unwrap().to_string();
+                    let p_val = convert(&row[2]).unwrap();
+                    let s_val = convert(&row[3]).unwrap();
+
+                    batch.push(OwnedObject {
+                        d,
+                        t: t_str,
+                        p: p_val,
+                        s: s_val,
+                        c: 0.0,
+                    });
+                }
+
+                if !batch.is_empty() {
+                    let _ = create_objects(connection, p.as_ref(), &batch);
+                }
             }
             else {
                 println!("Can't find the file.");
@@ -71,11 +151,27 @@ pub fn fill_partitions() {
         }
         None => {
             if let Some(Ok(range)) = excel.worksheet_range(&t) {
-                for row in range.rows().skip(1) {
-                    println!("Check you PostgreSQL table for below object insertion");
-                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
-                    let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), convert(&row[2]).as_ref().unwrap(), convert(&row[3]).as_ref().unwrap(), &0.0);
-                 }
+                let rows: Vec<_> = range.rows().skip(1).collect();
+                let mut batch = Vec::with_capacity(rows.len());
+
+                for row in rows.into_iter() {
+                    let d = row[0].as_datetime().unwrap();
+                    let t_str = row[1].as_string().unwrap().to_string();
+                    let p_val = convert(&row[2]).unwrap();
+                    let s_val = convert(&row[3]).unwrap();
+
+                    batch.push(OwnedObject {
+                        d,
+                        t: t_str,
+                        p: p_val,
+                        s: s_val,
+                        c: 0.0,
+                    });
+                }
+
+                if !batch.is_empty() {
+                    let _ = create_objects(connection, p.as_ref(), &batch);
+                }
             }
             else {
                 println!("Can't find the file.");
