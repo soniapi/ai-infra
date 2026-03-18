@@ -110,12 +110,12 @@ pub fn fill_partitions() {
         let _ = create_object(connection, p.as_ref(), d, t_val, &p_val, &s_val, &0.0);
     });
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
+    use chrono::NaiveDate;
 
     #[test]
     fn test_process_workbook_no_limit() {
@@ -136,8 +136,6 @@ mod tests {
         // row 3: invalid (string where datetime expected)
         // row 4: valid
         // But skip(1) skips the header if it was generated as header.
-        // wait, our python script created a dataframe with 4 rows.
-        // It saves to excel. The first row in excel is header: d, t, p, s.
         // skip(1) skips header. So it processes 4 data rows.
         // But row 3 is invalid datetime.
         // So 3 valid rows should be processed.
@@ -168,55 +166,7 @@ mod tests {
         });
 
         assert_eq!(rows_processed, 0);
-    match r {
-        Some(limit) => {
-            if let Some(Ok(range)) = excel.worksheet_range(&t) {
-                for row in range.rows().skip(1).take(limit as usize) {
-                    if let (Some(d), Some(t_str), Some(p_val), Some(s_val)) = (
-                        row[0].as_datetime(),
-                        row[1].as_string(),
-                        convert(&row[2]),
-                        convert(&row[3]),
-                    ) {
-                        println!("Check you PostgreSQL table for below object insertion");
-                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_str, p_val, s_val);
-                        let _ = create_object(connection, p.as_ref(), &d, &t_str, &p_val, &s_val, &0.0);
-                    } else {
-                        println!("Skipping row due to invalid data: {:?}", row);
-                    }
-                 }
-            }
-            else {
-                println!("Can't find the file.");
-            }
-        }
-        None => {
-            if let Some(Ok(range)) = excel.worksheet_range(&t) {
-                for row in range.rows().skip(1) {
-                    if let (Some(d), Some(t_str), Some(p_val), Some(s_val)) = (
-                        row[0].as_datetime(),
-                        row[1].as_string(),
-                        convert(&row[2]),
-                        convert(&row[3]),
-                    ) {
-                        println!("Check you PostgreSQL table for below object insertion");
-                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_str, p_val, s_val);
-                        let _ = create_object(connection, p.as_ref(), &d, &t_str, &p_val, &s_val, &0.0);
-                    } else {
-                        println!("Skipping row due to invalid data: {:?}", row);
-                    }
-                 }
-            }
-            else {
-                println!("Can't find the file.");
-            }
-        }
     }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::NaiveDate;
 
     fn get_test_connection() -> PgConnection {
         let mut conn = establish_connection();
