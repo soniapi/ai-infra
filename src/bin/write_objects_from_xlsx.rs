@@ -3,12 +3,15 @@ use infra::{establish_connection, create_object};
 
 use infra::helpers;
 
-fn main() {
-    let connection = &mut establish_connection();
+use std::error::Error;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut connection = establish_connection()?;
+    let connection = &mut connection;
 
     let (f, t, p, r) = helpers::inputs();
 
-    let mut excel: Xlsx<_> = open_workbook(f).unwrap();
+    let mut excel: Xlsx<_> = open_workbook(f)?;
 
     if let Some(Ok(range)) = excel.worksheet_range(&t) {
         for row in range.rows().skip(1).take(r.unwrap() as usize) {
@@ -20,5 +23,6 @@ fn main() {
     else {
         println!("Can't find the file.");
     }
+    Ok(())
 }
 
