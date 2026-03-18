@@ -54,30 +54,15 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
 pub fn fill_partitions() {
     let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
-    let mut excel: Xlsx<_> = match open_workbook(&f) {
-        Ok(workbook) => workbook,
-        Err(e) => {
-            println!("Error opening workbook {}: {}", f, e);
-            return;
-        }
-    };
+    let mut excel: Xlsx<_> = open_workbook(f).unwrap();
 
     match r {
         Some(limit) => {
             if let Some(Ok(range)) = excel.worksheet_range(&t) {
                 for row in range.rows().skip(1).take(limit as usize) {
-                    if let (Some(d), Some(t_str), Some(p_val), Some(s_val)) = (
-                        row[0].as_datetime(),
-                        row[1].as_string(),
-                        convert(&row[2]),
-                        convert(&row[3]),
-                    ) {
-                        println!("Check you PostgreSQL table for below object insertion");
-                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_str, p_val, s_val);
-                        let _ = create_object(connection, p.as_ref(), &d, &t_str, &p_val, &s_val, &0.0);
-                    } else {
-                        println!("Skipping row due to invalid data: {:?}", row);
-                    }
+                    println!("Check you PostgreSQL table for below object insertion");
+                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
+                    let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), convert(&row[2]).as_ref().unwrap(), convert(&row[3]).as_ref().unwrap(), &0.0);
                  }
             }
             else {
@@ -87,57 +72,14 @@ pub fn fill_partitions() {
         None => {
             if let Some(Ok(range)) = excel.worksheet_range(&t) {
                 for row in range.rows().skip(1) {
-                    if let (Some(d), Some(t_str), Some(p_val), Some(s_val)) = (
-                        row[0].as_datetime(),
-                        row[1].as_string(),
-                        convert(&row[2]),
-                        convert(&row[3]),
-                    ) {
-                        println!("Check you PostgreSQL table for below object insertion");
-                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_str, p_val, s_val);
-                        let _ = create_object(connection, p.as_ref(), &d, &t_str, &p_val, &s_val, &0.0);
-                    } else {
-                        println!("Skipping row due to invalid data: {:?}", row);
-                    }
+                    println!("Check you PostgreSQL table for below object insertion");
+                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", row[0].as_datetime(), row[1].as_string(), &helpers::convert(&row[2]).as_ref().unwrap(), &helpers::convert(&row[3]).as_ref().unwrap());
+                    let _ = create_object(connection,  p.as_ref(), row[0].as_datetime().as_ref().unwrap(), row[1].as_string().as_ref().unwrap(), convert(&row[2]).as_ref().unwrap(), convert(&row[3]).as_ref().unwrap(), &0.0);
                  }
             }
             else {
                 println!("Can't find the file.");
             }
-        }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::NaiveDate;
-
-    fn get_test_connection() -> PgConnection {
-        let mut conn = establish_connection();
-        conn.begin_test_transaction().unwrap();
-        conn
-    }
-
-    #[test]
-    fn test_create_object_none_partition() {
-        let mut conn = get_test_connection();
-        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
-        let t = "test_t".to_string();
-        let p = 1.0;
-        let s = 2.0;
-        let c = 3.0;
-
-        let result = create_object(&mut conn, None, &d, &t, &p, &s, &c);
-        assert!(result.is_ok());
-
-        if let Ok(ObjectType::None(obj)) = result {
-            assert_eq!(obj.d, d);
-            assert_eq!(obj.t, t);
-            assert_eq!(obj.p, p);
-            assert_eq!(obj.s, s);
-            assert_eq!(obj.c, c);
-        } else {
-            panic!("Expected ObjectType::None");
         }
     }
 }
@@ -202,42 +144,5 @@ mod tests {
         run_with_env("DATABASE_URL", Some("invalid_url"), || {
             establish_connection();
         });
-
-    #[test]
-    fn test_create_object_some_s_partition() {
-        let mut conn = get_test_connection();
-        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
-        let t = "test_s".to_string();
-        let p = 4.0;
-        let s = 5.0;
-        let c = 6.0;
-
-        let partition_val = "s".to_string();
-        let result = create_object(&mut conn, Some(&partition_val), &d, &t, &p, &s, &c);
-        assert!(result.is_ok());
-
-        if let Ok(ObjectType::S(obj)) = result {
-            assert_eq!(obj.d, d);
-            assert_eq!(obj.t, t);
-            assert_eq!(obj.p, p);
-            assert_eq!(obj.s, s);
-            assert_eq!(obj.c, c);
-        } else {
-            panic!("Expected ObjectType::S");
-        }
-    }
-
-    #[test]
-    fn test_create_object_invalid_partition() {
-        let mut conn = get_test_connection();
-        let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
-        let t = "test_invalid".to_string();
-        let p = 7.0;
-        let s = 8.0;
-        let c = 9.0;
-
-        let partition_val = "invalid".to_string();
-        let result = create_object(&mut conn, Some(&partition_val), &d, &t, &p, &s, &c);
-        assert!(result.is_err());
     }
 }

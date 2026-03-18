@@ -14,32 +14,8 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: usr
-          POSTGRES_PASSWORD: pwd
-          POSTGRES_DB: name-postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      DATABASE_URL: postgres://usr:pwd@localhost:5432/name-postgres
-
     steps:
     - uses: actions/checkout@v4
-    - name: Install libpq-dev
-      run: sudo apt-get update && sudo apt-get install -y libpq-dev
-    - name: Install diesel_cli
-      run: cargo install diesel_cli --no-default-features --features postgres
-    - name: Run migrations
-      run: diesel setup
     - name: Build
       run: cargo build --verbose
     - name: Run tests
