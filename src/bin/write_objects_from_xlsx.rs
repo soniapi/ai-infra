@@ -71,5 +71,8 @@ fn main() {
     else {
         println!("Can't find the file.");
     }
+    else {
+        println!("Can't find the file.");
+    }
 }
 
