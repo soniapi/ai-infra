@@ -18,12 +18,12 @@ pub struct Object {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = objects)]
-pub struct NewObject<'a> {
-    pub d: &'a NaiveDateTime,
-    pub t: &'a String,
-    pub p: &'a f32,
-    pub s: &'a f32,
-    pub c: &'a f32,
+pub struct NewObject {
+    pub d: NaiveDateTime,
+    pub t: String,
+    pub p: f32,
+    pub s: f32,
+    pub c: f32,
 }
 
 #[derive(Queryable, Selectable, Debug)]
@@ -40,11 +40,11 @@ pub struct ObjectS {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = objects_s)]
-pub struct NewObjectS<'a> {
-    pub d: &'a NaiveDateTime,
-    pub t: &'a String,
-    pub p: &'a f32,
-    pub s: &'a f32,
-    pub c: &'a f32,
+pub struct NewObjectS {
+    pub d: NaiveDateTime,
+    pub t: String,
+    pub p: f32,
+    pub s: f32,
+    pub c: f32,
 }
 
