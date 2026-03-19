@@ -43,6 +43,8 @@ pub fn inputs_option_from<R: BufRead>(reader: &mut R) -> Option<String> {
     read_input_option(reader)
 }
 
+use calamine::{Reader, open_workbook_auto};
+
 pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (String, String, Option<String>, Option<i32>) {
     writer.flush().expect("Failed to flush stdout");
     writeln!(writer, "Enter your file path:").unwrap();
@@ -55,7 +57,15 @@ pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (Str
     writeln!(writer, "Enter your file tab:").unwrap();
     let mut t = String::new();
     reader.read_line(&mut t).expect("Read line failed");
-    let trimmed_t = t.trim().to_string();
+    let mut trimmed_t = t.trim().to_string();
+
+    if trimmed_t.is_empty() {
+        if let Ok(workbook) = open_workbook_auto(&trimmed_f) {
+            if let Some(first_sheet) = workbook.sheet_names().first() {
+                trimmed_t = first_sheet.to_string();
+            }
+        }
+    }
     writeln!(writer, "Your input:{:?}", trimmed_t).unwrap();
 
     writer.flush().expect("Failed to flush stdout");
@@ -254,5 +264,20 @@ mod io_tests {
 
         let output = String::from_utf8(writer).unwrap();
         assert!(output.contains("Your input None"));
+    }
+
+    #[test]
+    fn test_inputs_from_empty_tab_uses_first_sheet() {
+        let mut reader = &b"test_data.xlsx\n\n\n\n"[..];
+        let mut writer = Vec::new();
+        let (f, t, p, r) = inputs_from(&mut reader, &mut writer);
+
+        assert_eq!(f, "test_data.xlsx");
+        assert_eq!(t, "Sheet1");
+        assert_eq!(p, None);
+        assert_eq!(r, None);
+
+        let output = String::from_utf8(writer).unwrap();
+        assert!(output.contains("Your input:\"Sheet1\""));
     }
 }
