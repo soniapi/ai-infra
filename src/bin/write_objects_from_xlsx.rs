@@ -1,8 +1,8 @@
 use calamine::{Xlsx, open_workbook, Reader};
-use infra::{establish_connection, create_objects, create_objects_s};
-use infra::models::{NewObject, NewObjectS};
+use ai_infra::{establish_connection, create_objects, create_objects_s};
+use ai_infra::models::{NewObject, NewObjectS};
 
-use infra::helpers;
+use ai_infra::helpers;
 
 fn main() {
     let connection = &mut establish_connection();
