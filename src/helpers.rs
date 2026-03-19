@@ -39,6 +39,10 @@ pub fn inputs_option() -> Option<String> {
     read_input_option(&mut handle)
 }
 
+pub fn inputs_option_from<R: BufRead>(reader: &mut R) -> Option<String> {
+    read_input_option(reader)
+}
+
 pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (String, String, Option<String>, Option<i32>) {
     writer.flush().expect("Failed to flush stdout");
     writeln!(writer, "Enter your file path:").unwrap();
