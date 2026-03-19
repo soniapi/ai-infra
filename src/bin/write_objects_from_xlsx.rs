@@ -16,31 +16,47 @@ fn main() {
         }
     };
 
-    if let Some(Ok(range)) = excel.worksheet_range(&t) {
-        let rows: Vec<_> = range.rows().skip(1).take(r.unwrap_or(std::i32::MAX) as usize).collect();
-        let mut batch = Vec::with_capacity(rows.len());
-
-        for row in rows.into_iter() {
-            let d = row[0].as_datetime().unwrap();
-            let t_str = row[1].as_string().unwrap().to_string();
-            let p_val = helpers::convert(&row[2]).unwrap();
-            let s_val = helpers::convert(&row[3]).unwrap();
-
-            batch.push(infra::OwnedObject {
-                d,
-                t: t_str,
-                p: p_val,
-                s: s_val,
-                c: 0.0,
-            });
+    match r {
+        Some(limit) => {
+            if let Some(Ok(range)) = excel.worksheet_range(&t) {
+                for row in range.rows().skip(1).take(limit as usize) {
+                    if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
+                        row[0].as_datetime(),
+                        row[1].as_string(),
+                        helpers::convert(&row[2]),
+                        helpers::convert(&row[3]),
+                    ) {
+                        println!("Check you PostgreSQL table for below object insertion");
+                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
+                        let _ = create_object(connection, p.as_ref(), &d, &t_val, &p_val, &s_val, &0.0);
+                    } else {
+                        println!("Skipping row due to invalid data format");
+                    }
+                }
+            } else {
+                println!("Can't find the file.");
+            }
         }
-
-        if !batch.is_empty() {
-            let _ = create_objects(connection, p.as_ref(), &batch);
+        None => {
+            if let Some(Ok(range)) = excel.worksheet_range(&t) {
+                for row in range.rows().skip(1) {
+                    if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
+                        row[0].as_datetime(),
+                        row[1].as_string(),
+                        helpers::convert(&row[2]),
+                        helpers::convert(&row[3]),
+                    ) {
+                        println!("Check you PostgreSQL table for below object insertion");
+                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
+                        let _ = create_object(connection, p.as_ref(), &d, &t_val, &p_val, &s_val, &0.0);
+                    } else {
+                        println!("Skipping row due to invalid data format");
+                    }
+                }
+            } else {
+                println!("Can't find the file.");
+            }
         }
-    }
-    else {
-        println!("Can't find the file.");
     }
 }
 
