@@ -17,6 +17,7 @@ fn main() {
         }
     };
 
+<<<<<<< feat/optimize-db-insertions-12902756851123970598
     let is_partition_s = p.as_deref() == Some("s");
 
     if let Some(Ok(range)) = excel.worksheet_range(&t) {
@@ -74,6 +75,49 @@ fn main() {
         }
     } else {
         println!("Can't find the file.");
+=======
+    match r {
+        Some(limit) => {
+            if let Some(Ok(range)) = excel.worksheet_range(&t) {
+                for row in range.rows().skip(1).take(limit as usize) {
+                    if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
+                        row[0].as_datetime(),
+                        row[1].as_string(),
+                        helpers::convert(&row[2]),
+                        helpers::convert(&row[3]),
+                    ) {
+                        println!("Check you PostgreSQL table for below object insertion");
+                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
+                        let _ = create_object(connection, p.as_ref(), &d, &t_val, &p_val, &s_val, &0.0);
+                    } else {
+                        println!("Skipping row due to invalid data format");
+                    }
+                }
+            } else {
+                println!("Can't find the file.");
+            }
+        }
+        None => {
+            if let Some(Ok(range)) = excel.worksheet_range(&t) {
+                for row in range.rows().skip(1) {
+                    if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
+                        row[0].as_datetime(),
+                        row[1].as_string(),
+                        helpers::convert(&row[2]),
+                        helpers::convert(&row[3]),
+                    ) {
+                        println!("Check you PostgreSQL table for below object insertion");
+                        println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
+                        let _ = create_object(connection, p.as_ref(), &d, &t_val, &p_val, &s_val, &0.0);
+                    } else {
+                        println!("Skipping row due to invalid data format");
+                    }
+                }
+            } else {
+                println!("Can't find the file.");
+            }
+        }
+>>>>>>> master
     }
 }
 
