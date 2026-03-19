@@ -30,7 +30,9 @@ fn main() {
                 batch.push((d, t_str, p_val, s_val, 0.0));
 
                 if batch.len() >= 1000 {
-                    let _ = create_objects(connection, p.as_ref(), &batch);
+                    if let Err(e) = create_objects(connection, p.as_ref(), &batch) {
+                        println!("Failed to insert batch: {}", e);
+                    }
                     batch.clear();
                 }
             } else {
@@ -39,12 +41,11 @@ fn main() {
         }
 
         if !batch.is_empty() {
-            let _ = create_objects(connection, p.as_ref(), &batch);
+            if let Err(e) = create_objects(connection, p.as_ref(), &batch) {
+                println!("Failed to insert batch: {}", e);
+            }
         }
         println!("Batch insert completed.");
-    }
-    else {
-        println!("Can't find the file.");
     }
     else {
         println!("Can't find the file.");

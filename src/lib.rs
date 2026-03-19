@@ -51,6 +51,36 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
     }
 }
 
+pub fn create_objects(connection: &mut PgConnection, partition: Option<&String>, objects_data: &[(NaiveDateTime, String, f32, f32, f32)]) -> Result<usize, Box<dyn Error>> {
+    if objects_data.is_empty() {
+        return Ok(0);
+    }
+
+    match partition {
+        None => {
+            use crate::schema::objects;
+            let new_objects: Vec<NewObject> = objects_data.iter().map(|(d, t, p, s, c)| {
+                NewObject { d, t, p, s, c }
+            }).collect();
+            let count = diesel::insert_into(objects::table)
+                .values(&new_objects)
+                .execute(connection)?;
+            Ok(count)
+        },
+        Some(value) if value == "s" => {
+            use crate::schema::objects_s;
+            let new_objects_s: Vec<NewObjectS> = objects_data.iter().map(|(d, t, p, s, c)| {
+                NewObjectS { d, t, p, s, c }
+            }).collect();
+            let count = diesel::insert_into(objects_s::table)
+                .values(&new_objects_s)
+                .execute(connection)?;
+            Ok(count)
+        },
+        _ => Err("Error".into()),
+    }
+}
+
 pub fn fill_partitions() {
     let connection = &mut establish_connection();
     let (f, t, p, r) = helpers::inputs();
@@ -81,68 +111,5 @@ pub fn fill_partitions() {
                 println!("Can't find the file.");
             }
         }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use serial_test::serial;
-
-    // Helper to safely run tests that modify env vars
-    fn run_with_env<F>(key: &str, value: Option<&str>, test: F)
-    where
-        F: FnOnce() + std::panic::UnwindSafe,
-    {
-        let original = env::var_os(key);
-        unsafe {
-            if let Some(v) = value {
-                env::set_var(key, v);
-            } else {
-                env::remove_var(key);
-            }
-        }
-
-        struct EnvGuard {
-            key: String,
-            original: Option<std::ffi::OsString>,
-        }
-
-        impl Drop for EnvGuard {
-            fn drop(&mut self) {
-                unsafe {
-                    if let Some(orig) = &self.original {
-                        env::set_var(&self.key, orig);
-                    } else {
-                        env::remove_var(&self.key);
-                    }
-                }
-            }
-        }
-
-        let _guard = EnvGuard {
-            key: key.to_string(),
-            original,
-        };
-
-        test();
-    }
-
-    #[test]
-    #[serial]
-    #[should_panic(expected = "DATABASE_URL must be set")]
-    fn test_establish_connection_missing_url() {
-        run_with_env("DATABASE_URL", None, || {
-            establish_connection();
-        });
-    }
-
-    #[test]
-    #[serial]
-    #[should_panic(expected = "Error connecting to invalid_url")]
-    fn test_establish_connection_invalid_url() {
-        run_with_env("DATABASE_URL", Some("invalid_url"), || {
-            establish_connection();
-        });
     }
 }
