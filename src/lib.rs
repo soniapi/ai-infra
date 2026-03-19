@@ -29,7 +29,7 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
         None => {
             println!("No partition");
             use crate::schema::objects;
-            let new_object = NewObject { d, t, p, s, c };
+            let new_object = NewObject { d: *d, t: t.clone(), p: *p, s: *s, c: *c };
             Ok(ObjectType::None(
                 diesel::insert_into(objects::table)
                 .values(&new_object)
@@ -40,7 +40,7 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
         Some(value) if value == "s" => {
             println!("Partition: {:?}", value);
             use crate::schema::objects_s;
-            let new_object_s = NewObjectS { d, t, p, s, c };
+            let new_object_s = NewObjectS { d: *d, t: t.clone(), p: *p, s: *s, c: *c };
             Ok(ObjectType::S(diesel::insert_into(objects_s::table)
                 .values(&new_object_s)
                 .returning(ObjectS::as_returning())
@@ -51,6 +51,22 @@ pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, 
     }
 }
 
+pub fn create_objects(connection: &mut PgConnection, objects: &[NewObject]) -> Result<usize, Box<dyn Error>> {
+    use crate::schema::objects;
+    let count = diesel::insert_into(objects::table)
+        .values(objects)
+        .execute(connection)?;
+    Ok(count)
+}
+
+pub fn create_objects_s(connection: &mut PgConnection, objects: &[NewObjectS]) -> Result<usize, Box<dyn Error>> {
+    use crate::schema::objects_s;
+    let count = diesel::insert_into(objects_s::table)
+        .values(objects)
+        .execute(connection)?;
+    Ok(count)
+}
+
 use std::io::{Read, Seek};
 
 pub fn process_workbook<RS: Read + Seek, R: Reader<RS>, F>(excel: &mut R, t: &str, r: Option<i32>, mut handler: F)
@@ -59,35 +75,19 @@ where
 {
     if let Some(Ok(range)) = excel.worksheet_range(t) {
         let rows = range.rows().skip(1);
-        if let Some(limit) = r {
-            for row in rows.take(limit as usize) {
-                if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
-                    row[0].as_datetime(),
-                    row[1].as_string(),
-                    convert(&row[2]),
-                    convert(&row[3]),
-                ) {
-                    println!("Check your PostgreSQL table for below object insertion");
-                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
-                    handler(&d, &t_val, p_val, s_val);
-                } else {
-                    eprintln!("Warning: Skipping invalid row: {:?}", row);
-                }
-            }
+        let row_iter: Box<dyn Iterator<Item = &[calamine::DataType]> + '_> = if let Some(limit) = r {
+            Box::new(rows.take(limit as usize))
         } else {
-            for row in rows {
-                if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
-                    row[0].as_datetime(),
-                    row[1].as_string(),
-                    convert(&row[2]),
-                    convert(&row[3]),
-                ) {
-                    println!("Check your PostgreSQL table for below object insertion");
-                    println!("row[0]={:?}, row[1]={:?}, row[2]={:?}, row[3]={:?}", d, t_val, p_val, s_val);
-                    handler(&d, &t_val, p_val, s_val);
-                } else {
-                    eprintln!("Warning: Skipping invalid row: {:?}", row);
-                }
+            Box::new(rows)
+        };
+        for row in row_iter {
+            if let (Some(d), Some(t_val), Some(p_val), Some(s_val)) = (
+                row[0].as_datetime(),
+                row[1].as_string(),
+                convert(&row[2]),
+                convert(&row[3]),
+            ) {
+                handler(&d, &t_val, p_val, s_val);
             }
         }
     } else {
@@ -106,9 +106,44 @@ pub fn fill_partitions() {
         }
     };
 
+    let is_partition_s = p.as_deref() == Some("s");
+    let mut objects = Vec::new();
+    let mut objects_s = Vec::new();
+
     process_workbook(&mut excel, &t, r, |d, t_val, p_val, s_val| {
-        let _ = create_object(connection, p.as_ref(), d, t_val, &p_val, &s_val, &0.0);
+        if is_partition_s {
+            objects_s.push(NewObjectS {
+                d: *d,
+                t: t_val.to_string(),
+                p: p_val,
+                s: s_val,
+                c: 0.0,
+            });
+            if objects_s.len() >= 1000 {
+                let _ = create_objects_s(connection, &objects_s);
+                objects_s.clear();
+            }
+        } else {
+            objects.push(NewObject {
+                d: *d,
+                t: t_val.to_string(),
+                p: p_val,
+                s: s_val,
+                c: 0.0,
+            });
+            if objects.len() >= 1000 {
+                let _ = create_objects(connection, &objects);
+                objects.clear();
+            }
+        }
     });
+
+    if !objects_s.is_empty() {
+        let _ = create_objects_s(connection, &objects_s);
+    }
+    if !objects.is_empty() {
+        let _ = create_objects(connection, &objects);
+    }
 }
 #[cfg(test)]
 mod tests {
