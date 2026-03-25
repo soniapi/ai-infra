@@ -1,6 +1,6 @@
-use calamine::{Xlsx, open_workbook, Reader};
-use ai_infra::{establish_connection, create_objects, create_objects_s};
 use ai_infra::models::{NewObject, NewObjectS};
+use ai_infra::{create_objects, create_objects_s, establish_connection};
+use calamine::{Reader, Xlsx, open_workbook};
 
 use ai_infra::helpers;
 
@@ -28,12 +28,12 @@ fn main() {
                 row[0].as_datetime(),
                 row[1].as_string(),
                 helpers::convert(&row[2]),
-                helpers::convert(&row[3])
+                helpers::convert(&row[3]),
             ) {
                 if is_partition_s {
                     batch_s.push(NewObjectS {
                         d,
-                        t: t_str.to_string(),
+                        t: t_str,
                         p: p_val,
                         s: s_val,
                         c: 0.0,
@@ -45,7 +45,7 @@ fn main() {
                 } else {
                     batch.push(NewObject {
                         d,
-                        t: t_str.to_string(),
+                        t: t_str,
                         p: p_val,
                         s: s_val,
                         c: 0.0,
@@ -67,9 +67,7 @@ fn main() {
             let _ = create_objects(connection, &batch);
         }
         println!("Batch insert completed.");
-    }
-    else {
+    } else {
         println!("Can't find the file.");
     }
 }
-
