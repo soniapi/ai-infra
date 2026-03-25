@@ -147,15 +147,13 @@ pub fn fill_partitions() {
         let _ = create_objects(connection, &objects);
     }
 }
-pub fn quote_identifier(ident: &str) -> String {
-    format!("\"{}\"", ident.replace("\"", "\"\""))
+#[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
+pub struct DdlResult {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub ddl: String,
 }
 
-pub fn quote_literal(literal: &str) -> String {
-    format!("'{}'", literal.replace("'", "''"))
-}
-
-pub fn divider_sql(divider_value: f32) -> (String, String, String, String) {
+pub fn divider_sql(conn: &mut PgConnection, divider_value: f32) -> (String, String, String, String) {
     let partitioned_table = "objects_s";
     let below = "_below_";
     let above = "_above_";
@@ -173,19 +171,25 @@ pub fn divider_sql(divider_value: f32) -> (String, String, String, String) {
         divider_value.to_string()
     );
 
-    let sql_below = format!(
-        "CREATE TABLE {} PARTITION OF {} FOR VALUES FROM (MINVALUE) TO ({})",
-        quote_identifier(&partition_name_below),
-        quote_identifier(partitioned_table),
-        quote_literal(&divider_value.to_string()),
-    );
+    let sql_below = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (MINVALUE) TO (%L)', $1, $2, $3) as ddl")
+        .bind::<diesel::sql_types::Text, _>(&partition_name_below)
+        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
+        .load::<DdlResult>(conn)
+        .expect("Failed to construct sql_below")
+        .pop()
+        .unwrap()
+        .ddl;
 
-    let sql_above = format!(
-        "CREATE TABLE {} PARTITION OF {} FOR VALUES FROM ({}) TO (MAXVALUE)",
-        quote_identifier(&partition_name_above),
-        quote_identifier(partitioned_table),
-        quote_literal(&divider_value.to_string()),
-    );
+    let sql_above = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (MAXVALUE)', $1, $2, $3) as ddl")
+        .bind::<diesel::sql_types::Text, _>(&partition_name_above)
+        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
+        .load::<DdlResult>(conn)
+        .expect("Failed to construct sql_above")
+        .pop()
+        .unwrap()
+        .ddl;
 
     (
         partition_name_below,
@@ -220,13 +224,20 @@ fn check_table_exists(conn: &mut PgConnection, table_name: &str) -> bool {
 }
 
 fn check_table_health(conn: &mut PgConnection, table_name: &str) -> bool {
-    let sql = format!("SELECT 1 FROM {} LIMIT 1", quote_identifier(table_name));
-    sql_query(sql).execute(conn).is_ok()
+    let query = sql_query("SELECT format('SELECT 1 FROM %I LIMIT 1', $1) as ddl")
+        .bind::<diesel::sql_types::Text, _>(table_name);
+
+    if let Ok(mut results) = query.load::<DdlResult>(conn) {
+        if let Some(res) = results.pop() {
+            return sql_query(res.ddl).execute(conn).is_ok();
+        }
+    }
+    false
 }
 
 pub fn divider(connection: &mut PgConnection, divider_value: f32) {
     let (partition_name_below, partition_name_above, sql_below, sql_above) =
-        divider_sql(divider_value);
+        divider_sql(connection, divider_value);
 
     println!(
         "Partition names: {:?} and {:?}",
