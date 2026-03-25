@@ -149,41 +149,36 @@ pub fn fill_partitions() {
 }
 #[cfg(test)]
 mod tests {
-    #[test]
-        fn test_quote_identifier() {
-            assert_eq!(quote_identifier("objects_s"), "\"objects_s\"");
-            assert_eq!(quote_identifier("my\"table"), "\"my\"\"table\"");
-        }
-
-        #[test]
-        fn test_quote_literal() {
-            assert_eq!(quote_literal("5.5"), "'5.5'");
-            assert_eq!(quote_literal("O'Reilly"), "'O''Reilly'");
-        }
-
-        #[test]
-        fn test_divider_sql_positive() {
-            let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(5.5);
-            assert_eq!(partition_name_below, "objects_s_below_5.5");
-            assert_eq!(partition_name_above, "objects_s_above_5.5");
-            assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_5.5\" PARTITION OF \"objects_s\" FOR VALUES FROM (MINVALUE) TO ('5.5')");
-            assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_5.5\" PARTITION OF \"objects_s\" FOR VALUES FROM ('5.5') TO (MAXVALUE)");
-        }
-
-        #[test]
-        fn test_divider_sql_negative() {
-            let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(-2.3);
-            assert_eq!(partition_name_below, "objects_s_below_-2.3");
-            assert_eq!(partition_name_above, "objects_s_above_-2.3");
-            assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_-2.3\" PARTITION OF \"objects_s\" FOR VALUES FROM (MINVALUE) TO ('-2.3')");
-            assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_-2.3\" PARTITION OF \"objects_s\" FOR VALUES FROM ('-2.3') TO (MAXVALUE)");
-        }
-
-
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
     use chrono::NaiveDate;
+
+    fn get_test_connection() -> PgConnection {
+        let mut conn = establish_connection();
+        conn.begin_test_transaction().unwrap();
+        conn
+    }
+
+    #[test]
+    fn test_divider_sql_positive() {
+        let mut conn = get_test_connection();
+        let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, 5.5);
+        assert_eq!(partition_name_below, "objects_s_below_5.5");
+        assert_eq!(partition_name_above, "objects_s_above_5.5");
+        assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_5.5\" PARTITION OF objects_s FOR VALUES FROM (MINVALUE) TO ('5.5')");
+        assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_5.5\" PARTITION OF objects_s FOR VALUES FROM ('5.5') TO (MAXVALUE)");
+    }
+
+    #[test]
+    fn test_divider_sql_negative() {
+        let mut conn = get_test_connection();
+        let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, -2.3);
+        assert_eq!(partition_name_below, "objects_s_below_-2.3");
+        assert_eq!(partition_name_above, "objects_s_above_-2.3");
+        assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_-2.3\" PARTITION OF objects_s FOR VALUES FROM (MINVALUE) TO ('-2.3')");
+        assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_-2.3\" PARTITION OF objects_s FOR VALUES FROM ('-2.3') TO (MAXVALUE)");
+    }
 
     #[test]
     fn test_process_workbook_no_limit() {
@@ -234,12 +229,6 @@ mod tests {
         });
 
         assert_eq!(rows_processed, 0);
-    }
-
-    fn get_test_connection() -> PgConnection {
-        let mut conn = establish_connection();
-        conn.begin_test_transaction().unwrap();
-        conn
     }
 
     #[test]
@@ -304,15 +293,13 @@ mod tests {
     }
 }
 
-fn quote_identifier(ident: &str) -> String {
-    format!("\"{}\"", ident.replace("\"", "\"\""))
+#[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
+struct DdlResult {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    ddl: String,
 }
 
-fn quote_literal(literal: &str) -> String {
-    format!("'{}'", literal.replace("'", "''"))
-}
-
-pub(crate) fn divider_sql(divider_value: f32) -> (String, String, String, String) {
+pub(crate) fn divider_sql(conn: &mut PgConnection, divider_value: f32) -> (String, String, String, String) {
     let partitioned_table = "objects_s";
     let below = "_below_";
     let above = "_above_";
@@ -330,19 +317,25 @@ pub(crate) fn divider_sql(divider_value: f32) -> (String, String, String, String
         divider_value.to_string()
     );
 
-    let sql_below = format!(
-        "CREATE TABLE {} PARTITION OF {} FOR VALUES FROM (MINVALUE) TO ({})",
-        quote_identifier(&partition_name_below),
-        quote_identifier(partitioned_table),
-        quote_literal(&divider_value.to_string()),
-    );
+    let sql_below = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (MINVALUE) TO (%L)', $1, $2, $3) as ddl")
+        .bind::<diesel::sql_types::Text, _>(&partition_name_below)
+        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
+        .load::<DdlResult>(conn)
+        .expect("Failed to construct sql_below")
+        .pop()
+        .unwrap()
+        .ddl;
 
-    let sql_above = format!(
-        "CREATE TABLE {} PARTITION OF {} FOR VALUES FROM ({}) TO (MAXVALUE)",
-        quote_identifier(&partition_name_above),
-        quote_identifier(partitioned_table),
-        quote_literal(&divider_value.to_string()),
-    );
+    let sql_above = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (MAXVALUE)', $1, $2, $3) as ddl")
+        .bind::<diesel::sql_types::Text, _>(&partition_name_above)
+        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
+        .load::<DdlResult>(conn)
+        .expect("Failed to construct sql_above")
+        .pop()
+        .unwrap()
+        .ddl;
 
     (
         partition_name_below,
@@ -377,13 +370,20 @@ fn check_table_exists(conn: &mut PgConnection, table_name: &str) -> bool {
 }
 
 fn check_table_health(conn: &mut PgConnection, table_name: &str) -> bool {
-    let sql = format!("SELECT 1 FROM {} LIMIT 1", quote_identifier(table_name));
-    sql_query(sql).execute(conn).is_ok()
+    let query = sql_query("SELECT format('SELECT 1 FROM %I LIMIT 1', $1) as ddl")
+        .bind::<diesel::sql_types::Text, _>(table_name);
+
+    if let Ok(mut results) = query.load::<DdlResult>(conn) {
+        if let Some(res) = results.pop() {
+            return sql_query(res.ddl).execute(conn).is_ok();
+        }
+    }
+    false
 }
 
 pub fn divider(connection: &mut PgConnection, divider_value: f32) {
     let (partition_name_below, partition_name_above, sql_below, sql_above) =
-        divider_sql(divider_value);
+        divider_sql(connection, divider_value);
 
     println!(
         "Partition names: {:?} and {:?}",
