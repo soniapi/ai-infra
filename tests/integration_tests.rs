@@ -4,6 +4,49 @@ use diesel::{Connection, PgConnection};
 use std::fs::File;
 use std::io::BufReader;
 use chrono::NaiveDate;
+use serial_test::serial;
+use std::env;
+
+struct EnvGuard {
+    key: String,
+    original_value: Option<String>,
+}
+
+impl EnvGuard {
+    fn new(key: &str) -> Self {
+        let original_value = env::var(key).ok();
+        Self {
+            key: key.to_string(),
+            original_value,
+        }
+    }
+
+    fn set(&self, value: &str) {
+        unsafe {
+            env::set_var(&self.key, value);
+        }
+    }
+
+    #[allow(dead_code)]
+    fn remove(&self) {
+        unsafe {
+            env::remove_var(&self.key);
+        }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        match &self.original_value {
+            Some(val) => unsafe {
+                env::set_var(&self.key, val);
+            },
+            None => unsafe {
+                env::remove_var(&self.key);
+            },
+        }
+    }
+}
 
 fn get_test_connection() -> PgConnection {
     let mut conn = establish_connection();
@@ -12,6 +55,7 @@ fn get_test_connection() -> PgConnection {
 }
 
 #[test]
+#[serial]
 fn test_divider_sql_positive() {
     let mut conn = get_test_connection();
     let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, 5.5);
@@ -22,6 +66,7 @@ fn test_divider_sql_positive() {
 }
 
 #[test]
+#[serial]
 fn test_divider_sql_negative() {
     let mut conn = get_test_connection();
     let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, -2.3);
@@ -32,6 +77,7 @@ fn test_divider_sql_negative() {
 }
 
 #[test]
+#[serial]
     fn test_process_workbook_no_limit() {
         let mut excel: Xlsx<BufReader<File>> = open_workbook("tests/test_data.xlsx").unwrap();
         let mut rows_processed = 0;
@@ -58,6 +104,7 @@ fn test_divider_sql_negative() {
     }
 
     #[test]
+    #[serial]
     fn test_process_workbook_with_limit() {
         let mut excel: Xlsx<BufReader<File>> = open_workbook("tests/test_data.xlsx").unwrap();
         let mut rows_processed = 0;
@@ -71,6 +118,7 @@ fn test_divider_sql_negative() {
     }
 
     #[test]
+    #[serial]
     fn test_process_workbook_invalid_tab() {
         let mut excel: Xlsx<BufReader<File>> = open_workbook("tests/test_data.xlsx").unwrap();
         let mut rows_processed = 0;
@@ -83,6 +131,7 @@ fn test_divider_sql_negative() {
     }
 
     #[test]
+    #[serial]
     fn test_create_object_none_partition() {
         let mut conn = get_test_connection();
         let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
@@ -106,6 +155,7 @@ fn test_divider_sql_negative() {
     }
 
     #[test]
+    #[serial]
     fn test_create_object_some_s_partition() {
         let mut conn = get_test_connection();
         let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
@@ -130,6 +180,7 @@ fn test_divider_sql_negative() {
     }
 
     #[test]
+    #[serial]
     fn test_create_object_invalid_partition() {
         let mut conn = get_test_connection();
         let d = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap().and_hms_opt(12, 0, 0).unwrap();
@@ -142,3 +193,69 @@ fn test_divider_sql_negative() {
         let result = create_object(&mut conn, Some(&partition_val), &d, &t, &p, &s, &c);
         assert!(result.is_err());
     }
+
+#[test]
+#[serial]
+fn test_establish_connection_success() {
+    // The test environment should already have a valid DATABASE_URL set in `.env`
+    // or system env. We just ensure calling it doesn't panic.
+    // establish_connection() will load from .env or env.
+
+    // We can use the guard to ensure it gets restored.
+    let _guard = EnvGuard::new("DATABASE_URL");
+
+    // Call should succeed, dotenv().ok() inside establish_connection will set it if not present.
+    let _conn = establish_connection();
+}
+
+#[test]
+#[serial]
+fn test_establish_connection_missing_url() {
+    let guard = EnvGuard::new("DATABASE_URL");
+    // Since we cannot safely change current_dir or rename `.env` in multithreaded tests,
+    // and `establish_connection` calls `dotenv().ok()` which will reload `.env` if missing,
+    // we can test the error by putting an empty string in DATABASE_URL.
+    // This will bypass the "must be set" `expect` but will panic on `establish` with a predictable error,
+    // or we can just accept that with `dotenv` it's hard to test the pure "missing" without mocking.
+    // Actually, setting it to empty string causes `PgConnection::establish("")` which panics with "Error connecting to ".
+    guard.set("");
+
+    let result = std::panic::catch_unwind(|| {
+        establish_connection();
+    });
+
+    assert!(result.is_err(), "establish_connection should panic when DATABASE_URL is missing or empty");
+
+    if let Err(err) = result {
+        let msg = err.downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .or_else(|| err.downcast_ref::<&str>().copied());
+        if let Some(s) = msg {
+            assert!(s.contains("Error connecting to"), "Panic message was: {}", s);
+        }
+    }
+}
+
+#[test]
+#[serial]
+fn test_establish_connection_invalid_url() {
+    let guard = EnvGuard::new("DATABASE_URL");
+    guard.set("postgres://invalid:password@localhost/invalid_db");
+
+    // Call should panic because DATABASE_URL is invalid
+    let result = std::panic::catch_unwind(|| {
+        establish_connection();
+    });
+
+    assert!(result.is_err(), "establish_connection should panic when DATABASE_URL is invalid");
+
+    // Check panic message if possible
+    if let Err(err) = result {
+        let msg = err.downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .or_else(|| err.downcast_ref::<&str>().copied());
+        if let Some(s) = msg {
+            assert!(s.contains("Error connecting to postgres://invalid:password@localhost/invalid_db"), "Panic message was: {}", s);
+        }
+    }
+}
