@@ -1,42 +1,37 @@
-    #[test]
-        fn test_quote_identifier() {
-            assert_eq!(quote_identifier("objects_s"), "\"objects_s\"");
-            assert_eq!(quote_identifier("my\"table"), "\"my\"\"table\"");
-        }
-
-        #[test]
-        fn test_quote_literal() {
-            assert_eq!(quote_literal("5.5"), "'5.5'");
-            assert_eq!(quote_literal("O'Reilly"), "'O''Reilly'");
-        }
-
-        #[test]
-        fn test_divider_sql_positive() {
-            let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(5.5);
-            assert_eq!(partition_name_below, "objects_s_below_5.5");
-            assert_eq!(partition_name_above, "objects_s_above_5.5");
-            assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_5.5\" PARTITION OF \"objects_s\" FOR VALUES FROM (MINVALUE) TO ('5.5')");
-            assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_5.5\" PARTITION OF \"objects_s\" FOR VALUES FROM ('5.5') TO (MAXVALUE)");
-        }
-
-        #[test]
-        fn test_divider_sql_negative() {
-            let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(-2.3);
-            assert_eq!(partition_name_below, "objects_s_below_-2.3");
-            assert_eq!(partition_name_above, "objects_s_above_-2.3");
-            assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_-2.3\" PARTITION OF \"objects_s\" FOR VALUES FROM (MINVALUE) TO ('-2.3')");
-            assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_-2.3\" PARTITION OF \"objects_s\" FOR VALUES FROM ('-2.3') TO (MAXVALUE)");
-        }
-
-
-    use ai_infra::*;
+use ai_infra::*;
 use calamine::{open_workbook, Xlsx};
 use diesel::{Connection, PgConnection};
-    use std::fs::File;
-    use std::io::BufReader;
-    use chrono::NaiveDate;
+use std::fs::File;
+use std::io::BufReader;
+use chrono::NaiveDate;
 
-    #[test]
+fn get_test_connection() -> PgConnection {
+    let mut conn = establish_connection();
+    conn.begin_test_transaction().unwrap();
+    conn
+}
+
+#[test]
+fn test_divider_sql_positive() {
+    let mut conn = get_test_connection();
+    let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, 5.5);
+    assert_eq!(partition_name_below, "objects_s_below_5.5");
+    assert_eq!(partition_name_above, "objects_s_above_5.5");
+    assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_5.5\" PARTITION OF objects_s FOR VALUES FROM (MINVALUE) TO ('5.5')");
+    assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_5.5\" PARTITION OF objects_s FOR VALUES FROM ('5.5') TO (MAXVALUE)");
+}
+
+#[test]
+fn test_divider_sql_negative() {
+    let mut conn = get_test_connection();
+    let (partition_name_below, partition_name_above, sql_below, sql_above) = divider_sql(&mut conn, -2.3);
+    assert_eq!(partition_name_below, "objects_s_below_-2.3");
+    assert_eq!(partition_name_above, "objects_s_above_-2.3");
+    assert_eq!(sql_below, "CREATE TABLE \"objects_s_below_-2.3\" PARTITION OF objects_s FOR VALUES FROM (MINVALUE) TO ('-2.3')");
+    assert_eq!(sql_above, "CREATE TABLE \"objects_s_above_-2.3\" PARTITION OF objects_s FOR VALUES FROM ('-2.3') TO (MAXVALUE)");
+}
+
+#[test]
     fn test_process_workbook_no_limit() {
         let mut excel: Xlsx<BufReader<File>> = open_workbook("tests/test_data.xlsx").unwrap();
         let mut rows_processed = 0;
@@ -85,12 +80,6 @@ use diesel::{Connection, PgConnection};
         });
 
         assert_eq!(rows_processed, 0);
-    }
-
-    fn get_test_connection() -> PgConnection {
-        let mut conn = establish_connection();
-        conn.begin_test_transaction().unwrap();
-        conn
     }
 
     #[test]
