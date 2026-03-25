@@ -268,11 +268,11 @@ mod io_tests {
 
     #[test]
     fn test_inputs_from_empty_tab_uses_first_sheet() {
-        let mut reader = &b"test_data.xlsx\n\n\n\n"[..];
+        let mut reader = &b"tests/test_data.xlsx\n\n\n\n"[..];
         let mut writer = Vec::new();
         let (f, t, p, r) = inputs_from(&mut reader, &mut writer);
 
-        assert_eq!(f, "test_data.xlsx");
+        assert_eq!(f, "tests/test_data.xlsx");
         assert_eq!(t, "Sheet1");
         assert_eq!(p, None);
         assert_eq!(r, None);
