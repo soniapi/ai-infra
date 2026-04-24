@@ -1,0 +1,7 @@
+services:
+  - type: pserv
+    name: grpc-schema-service
+    env: docker
+    envVars:
+      - key: PORT
+        value: 50051
