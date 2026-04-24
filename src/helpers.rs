@@ -59,13 +59,11 @@ pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (Str
     reader.read_line(&mut t).expect("Read line failed");
     let mut trimmed_t = t.trim().to_string();
 
-    if trimmed_t.is_empty() {
-        if let Ok(workbook) = open_workbook_auto(&trimmed_f) {
-            if let Some(first_sheet) = workbook.sheet_names().first() {
+    if trimmed_t.is_empty()
+        && let Ok(workbook) = open_workbook_auto(&trimmed_f)
+            && let Some(first_sheet) = workbook.sheet_names().first() {
                 trimmed_t = first_sheet.to_string();
             }
-        }
-    }
     writeln!(writer, "Your input:{:?}", trimmed_t).unwrap();
 
     writer.flush().expect("Failed to flush stdout");

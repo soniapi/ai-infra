@@ -166,13 +166,13 @@ pub fn divider_sql(conn: &mut PgConnection, divider_value: f32) -> (String, Stri
         "{}{}{}",
         partitioned_table,
         below,
-        divider_value.to_string()
+        divider_value
     );
     let partition_name_above = format!(
         "{}{}{}",
         partitioned_table,
         above,
-        divider_value.to_string()
+        divider_value
     );
 
     let sql_below = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (MINVALUE) TO (%L)', $1, $2, $3) as ddl")
@@ -219,11 +219,10 @@ fn check_table_exists(conn: &mut PgConnection, table_name: &str) -> bool {
     )
     .bind::<diesel::sql_types::Text, _>(table_name);
 
-    if let Ok(mut results) = query.load::<ExistsResult>(conn) {
-        if let Some(res) = results.pop() {
+    if let Ok(mut results) = query.load::<ExistsResult>(conn)
+        && let Some(res) = results.pop() {
             return res.exists;
         }
-    }
     false
 }
 
@@ -231,11 +230,10 @@ fn check_table_health(conn: &mut PgConnection, table_name: &str) -> bool {
     let query = sql_query("SELECT format('SELECT 1 FROM %I LIMIT 1', $1) as ddl")
         .bind::<diesel::sql_types::Text, _>(table_name);
 
-    if let Ok(mut results) = query.load::<DdlResult>(conn) {
-        if let Some(res) = results.pop() {
+    if let Ok(mut results) = query.load::<DdlResult>(conn)
+        && let Some(res) = results.pop() {
             return sql_query(res.ddl).execute(conn).is_ok();
         }
-    }
     false
 }
 
