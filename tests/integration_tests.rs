@@ -289,7 +289,7 @@ async fn test_grpc_hypothesis_context() {
         // Wait for the server to start by retrying the connection
         let mut retries = 0;
         let mut client = loop {
-            match ContextServiceClient::connect("http://[::1]:50051").await {
+            match ContextServiceClient::connect("http://127.0.0.1:50051").await {
                 Ok(c) => break c,
                 Err(e) => {
                     if retries > 20 {
