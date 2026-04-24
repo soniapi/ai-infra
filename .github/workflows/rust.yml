@@ -34,8 +34,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Install libpq-dev
-      run: sudo apt-get update && sudo apt-get install -y libpq-dev
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libpq-dev protobuf-compiler
     - name: Install diesel_cli
       run: cargo install diesel_cli --no-default-features --features postgres
     - name: Run migrations
