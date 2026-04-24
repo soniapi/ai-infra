@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ai_infra;
+
+service SchemaService {
+  rpc GetSchema (GetSchemaRequest) returns (GetSchemaResponse);
+}
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+  string schema = 1;
+}
