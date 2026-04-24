@@ -12,6 +12,10 @@ pub mod models;
 pub mod schema;
 pub mod helpers;
 
+pub mod schema_service {
+    tonic::include_proto!("ai_infra");
+}
+
 pub enum ObjectType {
     None(Object),
     S(ObjectS),
