@@ -3,11 +3,11 @@ syntax = "proto3";
 package ai_infra;
 
 service ContextService {
-    // The LLM asks ai-infra for the current state of the world
+    // Ask ai-infra for the current state of the world
     rpc GetHypothesisContext (HypothesisContextRequest) returns (HypothesisContextResponse);
 }
 
-// The LLM asks ai-infra for the current state of the world
+// Ask ai-infra for the current state of the world
 message HypothesisContextRequest {
     // Optionally specify which table we are analyzing
     string target_table = 1;
