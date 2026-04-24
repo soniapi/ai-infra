@@ -56,7 +56,8 @@ impl ContextService for MyContextService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse()?;
+    let port = std::env::var("PORT").unwrap_or_else(|_| "50051".to_string());
+    let addr = format!("0.0.0.0:{}", port).parse()?;
     let context_service = MyContextService::default();
 
     println!("Context service listening on {}", addr);
