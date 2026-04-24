@@ -259,3 +259,64 @@ fn test_establish_connection_invalid_url() {
         }
     }
 }
+
+struct ProcessGuard(std::process::Child);
+
+impl Drop for ProcessGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_grpc_hypothesis_context() {
+    use std::process::Command;
+    use std::time::Duration;
+    use ai_infra::schema_service::context_service_client::ContextServiceClient;
+    use ai_infra::schema_service::HypothesisContextRequest;
+
+    // Spawn the gRPC server in the background using the compiled binary
+    let server_process = Command::new("cargo")
+        .args(["run", "--bin", "grpc_schema_service"])
+        .spawn()
+        .expect("Failed to start grpc_schema_service");
+
+    let _guard = ProcessGuard(server_process);
+
+    let result = async {
+        // Wait for the server to start by retrying the connection
+        let mut retries = 0;
+        let mut client = loop {
+            match ContextServiceClient::connect("http://[::1]:50051").await {
+                Ok(c) => break c,
+                Err(e) => {
+                    if retries > 20 {
+                        return Err(e.into());
+                    }
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+        };
+
+        let request = tonic::Request::new(HypothesisContextRequest {
+            target_table: "objects".to_string(),
+            since_timestamp: "2023-01-01".to_string(),
+        });
+
+        let response = client.get_hypothesis_context(request).await?;
+        let inner = response.into_inner();
+
+        let schema_names: Vec<String> = inner.schema.into_iter().map(|c| c.column_name).collect();
+        assert!(schema_names.contains(&"id".to_string()));
+        assert!(schema_names.contains(&"d".to_string()));
+        assert!(inner.stats.is_empty());
+
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }.await;
+
+    // Assert that the test passed
+    result.expect("gRPC test failed");
+}
