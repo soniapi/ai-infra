@@ -2,12 +2,46 @@ syntax = "proto3";
 
 package ai_infra;
 
-service SchemaService {
-  rpc GetSchema (GetSchemaRequest) returns (GetSchemaResponse);
+service ContextService {
+    // The LLM asks ai-infra for the current state of the world
+    rpc GetHypothesisContext (HypothesisContextRequest) returns (HypothesisContextResponse);
 }
 
-message GetSchemaRequest {}
+// The LLM asks ai-infra for the current state of the world
+message HypothesisContextRequest {
+    // Optionally specify which table we are analyzing
+    string target_table = 1;
 
-message GetSchemaResponse {
-  string schema = 1;
+    // A timestamp to bound the statistical context
+    string since_timestamp = 2;
+}
+
+message HypothesisContextResponse {
+    // 1. The Shape of the Database (Schema)
+    repeated ColumnDefinition schema = 1;
+
+    // 2. The Current Data Distribution (Stats)
+    repeated ColumnStatistics stats = 2;
+
+    // 3. Existing Partitions (What has already been tried)
+    repeated PartitionInfo active_partitions = 3;
+}
+
+message ColumnDefinition {
+    string column_name = 1;      // e.g., "s" (size) or "c" (expected cost)
+    string data_type = 2;        // e.g., "f32"
+    bool is_partition_key = 3;   // e.g., true for "s"
+}
+
+message ColumnStatistics {
+    string column_name = 1;
+    float min_value = 2;         // e.g., 0.0
+    float max_value = 3;         // e.g., 500000.0
+    float average_value = 4;     // e.g., 14500.50
+    int64 total_rows = 5;        // e.g., 100000
+}
+
+message PartitionInfo {
+    string partition_name = 1;   // e.g., "objects_s_below_195000"
+    string logic = 2;            // e.g., "VALUES FROM (MINVALUE) TO (195000)"
 }
