@@ -6,7 +6,7 @@ COPY . .
 RUN cargo build --release --bin server
 
 # RUNTIME STAGE (MUST also use Debian 12 Bookworm)
-FROM debian:bookworkom-slim
+FROM debian:bookworm-slim
 WORKDIR /app
 # Install necessary runtime libs for Rust/gRPC
 RUN apt-get update && apt-get install -y libpq-dev ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
