@@ -27,7 +27,8 @@ jobs:
       with:
         credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
 
-    - name: 'Deploy to Cloud Run'
+    - id: 'deploy'
+      name: 'Deploy to Cloud Run'
       uses: 'google-github-actions/deploy-cloudrun@v2'
       with:
         service: '${{ env.SERVICE }}'
@@ -35,3 +36,9 @@ jobs:
         source: '.'
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
+
+    - name: 'Run Integration Tests against Cloud Run'
+      run: |
+        export CLOUD_RUN_URL="${{ steps.deploy.outputs.url }}"
+        export GCP_IDENTITY_TOKEN=$(gcloud auth print-identity-token --audiences="${{ steps.deploy.outputs.url }}")
+        cargo test --test integration_tests test_cloud_run_grpc

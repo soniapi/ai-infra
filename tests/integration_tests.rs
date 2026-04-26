@@ -355,8 +355,8 @@ async fn test_cloud_run_grpc() {
         println!("Using GCP_IDENTITY_TOKEN for authentication");
         let interceptor = move |mut req: tonic::Request<()>| {
             let bearer_token = format!("Bearer {}", token);
-            let meta_value = tonic::metadata::MetadataValue::try_from(&bearer_token).unwrap();
-            req.metadata_mut().insert("authorization", meta_value);
+            let meta_value = bearer_token.parse().unwrap();
+            req.metadata_mut().insert("authorization".parse::<tonic::metadata::MetadataKey<_>>().unwrap(), meta_value);
             Ok(req)
         };
         let mut client = ContextServiceClient::with_interceptor(channel, interceptor);
