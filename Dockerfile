@@ -1,4 +1,4 @@
-FROM rust:1.80-bullseye as builder
+FROM rust:1.85-bullseye as builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y protobuf-compiler libpq-dev
 COPY . .
