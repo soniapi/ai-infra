@@ -1,0 +1,48 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [ "master" ]
+
+env:
+  PROJECT_ID: ai-infra-grpc
+  REGION: us-central1
+  SERVICE: server
+  PROTOC: /usr/bin/protoc
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - id: 'auth'
+      name: 'Authenticate to Google Cloud'
+      uses: 'google-github-actions/auth@v2'
+      with:
+        credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+    - id: 'deploy'
+      name: 'Deploy to Cloud Run'
+      uses: 'google-github-actions/deploy-cloudrun@v2'
+      with:
+        service: '${{ env.SERVICE }}'
+        region: '${{ env.REGION }}'
+        source: '.'
+        project_id: '${{ env.PROJECT_ID }}'
+        flags: '--no-allow-unauthenticated --use-http2 --port=8080'
+
+    - name: 'Install dependencies for tests'
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+    - name: 'Run Integration Tests against Cloud Run'
+      run: |
+        export CLOUD_RUN_URL="${{ steps.deploy.outputs.url }}"
+        export GCP_IDENTITY_TOKEN=$(gcloud auth print-identity-token --audiences="${{ steps.deploy.outputs.url }}")
+        cargo test --test integration_tests test_cloud_run_grpc

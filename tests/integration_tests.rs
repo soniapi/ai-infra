@@ -320,3 +320,61 @@ async fn test_grpc_hypothesis_context() {
     // Assert that the test passed
     result.expect("gRPC test failed");
 }
+
+#[tokio::test]
+#[serial]
+async fn test_cloud_run_grpc() {
+    use ai_infra::schema_service::context_service_client::ContextServiceClient;
+    use ai_infra::schema_service::HypothesisContextRequest;
+    use std::env;
+
+    // Check if CLOUD_RUN_URL is provided, if not skip the test
+    let cloud_run_url = match env::var("CLOUD_RUN_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            println!("Skipping test_cloud_run_grpc: CLOUD_RUN_URL environment variable is not set.");
+            return;
+        }
+    };
+
+    println!("Testing against Cloud Run URL: {}", cloud_run_url);
+
+    // Connect to the Cloud Run gRPC service
+    let channel = tonic::transport::Channel::from_shared(cloud_run_url)
+        .expect("Invalid Cloud Run URL")
+        .connect()
+        .await
+        .expect("Failed to connect to Cloud Run service");
+
+    let request = tonic::Request::new(HypothesisContextRequest {
+        target_table: "objects".to_string(),
+        since_timestamp: "2023-01-01".to_string(),
+    });
+
+    let response = if let Ok(token) = env::var("GCP_IDENTITY_TOKEN") {
+        println!("Using GCP_IDENTITY_TOKEN for authentication");
+        let interceptor = move |mut req: tonic::Request<()>| {
+            let bearer_token = format!("Bearer {}", token);
+            let meta_value = bearer_token.parse().unwrap();
+            req.metadata_mut().insert("authorization".parse::<tonic::metadata::MetadataKey<_>>().unwrap(), meta_value);
+            Ok(req)
+        };
+        let mut client = ContextServiceClient::with_interceptor(channel, interceptor);
+        client.get_hypothesis_context(request).await
+    } else {
+        println!("No GCP_IDENTITY_TOKEN provided, attempting unauthenticated request");
+        let mut client = ContextServiceClient::new(channel);
+        client.get_hypothesis_context(request).await
+    }.expect("Failed to get response from Cloud Run service");
+
+    let inner = response.into_inner();
+
+    // Verify the schema
+    let schema_names: Vec<String> = inner.schema.into_iter().map(|c| c.column_name).collect();
+    assert!(schema_names.contains(&"id".to_string()));
+    assert!(schema_names.contains(&"d".to_string()));
+    assert!(schema_names.contains(&"t".to_string()));
+    assert!(schema_names.contains(&"p".to_string()));
+    assert!(schema_names.contains(&"s".to_string()));
+    assert!(schema_names.contains(&"c".to_string()));
+}
