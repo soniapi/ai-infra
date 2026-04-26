@@ -8,6 +8,7 @@ env:
   PROJECT_ID: ai-infra-grpc
   REGION: us-central1
   SERVICE: server
+  PROTOC: /usr/bin/protoc
 
 jobs:
   deploy:
@@ -36,6 +37,9 @@ jobs:
         source: '.'
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
+
+    - name: 'Install dependencies for tests'
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
     - name: 'Run Integration Tests against Cloud Run'
       run: |
