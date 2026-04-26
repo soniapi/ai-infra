@@ -279,9 +279,9 @@ async fn test_grpc_hypothesis_context() {
 
     // Spawn the gRPC server in the background using the compiled binary
     let server_process = Command::new("cargo")
-        .args(["run", "--bin", "grpc_schema_service"])
+        .args(["run", "--bin", "server"])
         .spawn()
-        .expect("Failed to start grpc_schema_service");
+        .expect("Failed to start server");
 
     let _guard = ProcessGuard(server_process);
 
