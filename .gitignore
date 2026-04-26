@@ -2,3 +2,4 @@ target/
 .env
 google-cloud-sdk/
 google-cloud-cli-linux-x86_64.tar.gz
+ai-infra-grpc-89db84856cbb.json
