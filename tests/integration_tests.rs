@@ -279,9 +279,9 @@ async fn test_grpc_hypothesis_context() {
 
     // Spawn the gRPC server in the background using the compiled binary
     let server_process = Command::new("cargo")
-        .args(["run", "--bin", "grpc_schema_service"])
+        .args(["run", "--bin", "server"])
         .spawn()
-        .expect("Failed to start grpc_schema_service");
+        .expect("Failed to start server");
 
     let _guard = ProcessGuard(server_process);
 
@@ -289,7 +289,7 @@ async fn test_grpc_hypothesis_context() {
         // Wait for the server to start by retrying the connection
         let mut retries = 0;
         let mut client = loop {
-            match ContextServiceClient::connect("http://127.0.0.1:50051").await {
+            match ContextServiceClient::connect("http://127.0.0.1:8080").await {
                 Ok(c) => break c,
                 Err(e) => {
                     if retries > 20 {
