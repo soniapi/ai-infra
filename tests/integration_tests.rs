@@ -342,6 +342,8 @@ async fn test_cloud_run_grpc() {
     // Connect to the Cloud Run gRPC service
     let channel = tonic::transport::Channel::from_shared(cloud_run_url)
         .expect("Invalid Cloud Run URL")
+        .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
+        .expect("Failed to configure TLS")
         .connect()
         .await
         .expect("Failed to connect to Cloud Run service");
