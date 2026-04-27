@@ -88,6 +88,54 @@ Automated deployments to **Google Cloud Run** are handled by a GitHub Actions wo
 - Authentication for integration tests in CI is managed via GCP Identity Tokens. Service accounts executing source-based deployments require specific IAM roles (Storage Admin, Cloud Build Editor, Artifact Registry Writer, Service Account User, Cloud Run Admin, and Cloud Run Invoker).
 - A `.dockerignore` file excluding the `target/` directory is present to prevent massive local artifact uploads to Cloud Build.
 
+### Client Example on Google Cloud Run
+`ai-infra` is available as a gRPC server service on Google Cloud. Below is sample code demonstrating how another client service running on Google Cloud can connect to `https://server-5u7ahgmduq-uc.a.run.app` and request database information securely.
+
+The sample illustrates using `tonic::transport::ClientTlsConfig` and injecting a Google Cloud identity token via an interceptor to authenticate the request against the private API.
+
+```rust
+use tonic::{
+    metadata::{AsciiMetadataValue, MetadataValue},
+    transport::{Channel, ClientTlsConfig},
+    Request,
+};
+use std::env;
+
+// Important: Note that you would need to import ContextServiceClient and HypothesisContextRequest
+// using a tonic::include_proto! macro that aligns with the ai_infra protobuf definition.
+
+async fn connect_to_cloud_run() -> Result<(), Box<dyn std::error::Error>> {
+    let cloud_run_url = "https://server-5u7ahgmduq-uc.a.run.app";
+
+    // 1. Establish a secure channel with native TLS roots
+    let tls_config = ClientTlsConfig::new().with_native_roots();
+    let channel = Channel::from_static(cloud_run_url)
+        .tls_config(tls_config)?
+        .connect()
+        .await?;
+
+    // 2. Fetch the Bearer token (e.g. from gcloud or a GCP metadata service)
+    let token = env::var("GCP_IDENTITY_TOKEN")
+        .expect("GCP_IDENTITY_TOKEN environment variable not set");
+
+    let bearer_token = format!("Bearer {}", token);
+    let bearer_token_val: MetadataValue<tonic::metadata::Ascii> = bearer_token.parse()?;
+
+    // 3. Create the client with an interceptor to inject the token
+    // let mut client = ContextServiceClient::with_interceptor(channel, move |mut req: Request<()>| {
+    //     req.metadata_mut().insert("authorization", bearer_token_val.clone());
+    //     Ok(req)
+    // });
+
+    // 4. Send the request
+    // let request = tonic::Request::new(HypothesisContextRequest { ... });
+    // let response = client.get_hypothesis_context(request).await?;
+    // println!("Context Response: {:?}", response.into_inner());
+
+    Ok(())
+}
+```
+
 ## License
 
 This project is licensed under the Apache License v2.0. See the `LICENSE-ALv2.md` file for more details.
