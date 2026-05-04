@@ -1,4 +1,5 @@
 use diesel::prelude::*;
+use diesel::connection::SimpleConnection;
 use diesel::sql_query;
 use diesel::RunQueryDsl;
 use dotenvy::dotenv;
@@ -262,11 +263,6 @@ pub fn divider(connection: &mut PgConnection, divider_value: f32) {
         }
     }
 
-    sql_query(sql_below)
-        .execute(connection)
-        .expect("Partition can't be created");
-
-    sql_query(sql_above)
-        .execute(connection)
-        .expect("Partition can't be created");
+    connection.batch_execute(&sql_below).expect("Partition can't be created");
+    connection.batch_execute(&sql_above).expect("Partition can't be created");
 }
