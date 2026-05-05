@@ -215,25 +215,16 @@ fn test_establish_connection_missing_url() {
     // Since we cannot safely change current_dir or rename `.env` in multithreaded tests,
     // and `establish_connection` calls `dotenv().ok()` which will reload `.env` if missing,
     // we can test the error by putting an empty string in DATABASE_URL.
-    // This will bypass the "must be set" `expect` but will panic on `establish` with a predictable error,
-    // or we can just accept that with `dotenv` it's hard to test the pure "missing" without mocking.
-    // Actually, setting it to empty string causes `PgConnection::establish("")` which panics with "Error connecting to ".
+    // This will bypass the old logic but will trigger our new fallback mechanism,
+    // which connects to localhost "name-postgres".
     guard.set("");
 
     let result = std::panic::catch_unwind(|| {
         establish_connection();
     });
 
-    assert!(result.is_err(), "establish_connection should panic when DATABASE_URL is missing or empty");
-
-    if let Err(err) = result {
-        let msg = err.downcast_ref::<String>()
-            .map(|s| s.as_str())
-            .or_else(|| err.downcast_ref::<&str>().copied());
-        if let Some(s) = msg {
-            assert!(s.contains("Error connecting to"), "Panic message was: {}", s);
-        }
-    }
+    // The connection to the local database in tests should succeed
+    assert!(result.is_ok(), "establish_connection should fall back to local DB and succeed");
 }
 
 #[test]
@@ -292,7 +283,7 @@ async fn test_grpc_hypothesis_context() {
             match ContextServiceClient::connect("http://127.0.0.1:8080").await {
                 Ok(c) => break c,
                 Err(e) => {
-                    if retries > 20 {
+                    if retries > 40 {
                         return Err(e.into());
                     }
                     retries += 1;

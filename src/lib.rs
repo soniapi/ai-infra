@@ -24,8 +24,22 @@ pub enum ObjectType {
 pub fn establish_connection() -> PgConnection {
     dotenv().ok();
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url).unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+    if let Ok(database_url) = env::var("DATABASE_URL") {
+        if !database_url.is_empty() {
+            return PgConnection::establish(&database_url)
+                .unwrap_or_else(|_| panic!("Error connecting to {}", database_url));
+        }
+    }
+
+    let vm_url = "postgres://usr:pwd@postgres-vm:5432/name-postgres";
+    match PgConnection::establish(vm_url) {
+        Ok(conn) => conn,
+        Err(_) => {
+            let local_url = "postgres://usr:pwd@localhost:5432/name-postgres";
+            PgConnection::establish(local_url)
+                .unwrap_or_else(|_| panic!("Error connecting to fallback local {}", local_url))
+        }
+    }
 }
 
 use self::models::{NewObject, Object, NewObjectS, ObjectS};
