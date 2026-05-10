@@ -292,7 +292,7 @@ async fn test_grpc_hypothesis_context() {
             match ContextServiceClient::connect("http://127.0.0.1:8080").await {
                 Ok(c) => break c,
                 Err(e) => {
-                    if retries > 20 {
+                    if retries > 40 {
                         return Err(e.into());
                     }
                     retries += 1;

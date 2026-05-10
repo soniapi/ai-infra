@@ -38,8 +38,20 @@ jobs:
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
 
+    - name: 'Fetch DATABASE_URL from Secret Manager'
+      run: |
+        DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
+        echo "::add-mask::$DB_URL"
+        echo "DATABASE_URL=$DB_URL" >> $GITHUB_ENV
+
     - name: 'Install dependencies for tests'
-      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpq-dev
+
+    - name: Install diesel_cli
+      run: cargo install diesel_cli --no-default-features --features postgres
+
+    - name: Run migrations
+      run: diesel setup
 
     - name: 'Run Integration Tests against Cloud Run'
       run: |
