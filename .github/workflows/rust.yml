@@ -19,9 +19,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: usr
-          POSTGRES_PASSWORD: pwd
-          POSTGRES_DB: name-postgres
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
         ports:
           - 5432:5432
         options: >-
@@ -31,8 +31,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgres://usr:pwd@localhost:5432/name-postgres
-
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
     - uses: actions/checkout@v4
     - name: Install dependencies
