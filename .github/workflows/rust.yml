@@ -9,6 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   PROTOC: /usr/bin/protoc
+  POSTGRES_USER: usr
+  POSTGRES_PASSWORD: pwd
+  POSTGRES_DB: name-postgres
 
 jobs:
   build:
@@ -19,9 +22,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: usr
-          POSTGRES_PASSWORD: pwd
-          POSTGRES_DB: name-postgres
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
         ports:
           - 5432:5432
         options: >-
@@ -31,7 +34,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgres://usr:pwd@localhost:5432/name-postgres
+      DATABASE_URL: postgres://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
 
     steps:
     - uses: actions/checkout@v4
