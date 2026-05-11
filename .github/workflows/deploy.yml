@@ -46,7 +46,17 @@ jobs:
         # Modify the internal IP to localhost
         DB_URL=$(echo $RAW_DB_URL | sed -e 's|@[0-9.]*:|@localhost:|')
         echo "::add-mask::$DB_URL"
-        echo "DATABASE_URL=$DB_URL" >> $GITHUB_ENV
+
+        TUNNEL_URL=$(echo $DB_URL | sed 's/10\.128\.0\.3/localhost/')
+
+        echo "DATABASE_URL=$TUNNEL_URL" >> $GITHUB_ENV
+
+    - name: 'Open Secure Tunnel'
+      run: |
+        gcloud compute start-iap-tunnel postgres-vm 5432 \
+            --local-host-port=localhost:5432 \
+            --zone=us-central1-c &
+        sleep 10
 
         ZONE=$(gcloud compute instances list --filter="name=postgres-vm" --format="value(zone)")
         gcloud compute start-iap-tunnel postgres-vm 5432 --local-host-port=localhost:5432 --zone=$ZONE --project=${{ env.PROJECT_ID }} &
@@ -59,6 +69,7 @@ jobs:
       run: cargo install diesel_cli --no-default-features --features postgres
 
     - name: Run migrations
+      # This step now uses the updated DATABASE_URL pointing to localhost
       run: diesel setup
 
     - name: 'Run Integration Tests against Cloud Run'
