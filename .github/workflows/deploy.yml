@@ -38,11 +38,22 @@ jobs:
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
 
-    - name: 'Fetch DATABASE_URL from Secret Manager'
+    - name: 'Fetch and Prepare DATABASE_URL from GitHub Actions secrets'
       run: |
+        # Fetch the secret
         DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
         echo "::add-mask::$DB_URL"
-        echo "DATABASE_URL=$DB_URL" >> $GITHUB_ENV
+
+        TUNNEL_URL=$(echo $DB_URL | sed 's/10\.128\.0\.3/localhost/')
+
+        echo "DATABASE_URL=$TUNNEL_URL" >> $GITHUB_ENV
+
+    - name: 'Open Secure Tunnel'
+      run: |
+        gcloud compute start-iap-tunnel postgres-vm 5432 \
+            --local-host-port=localhost:5432 \
+            --zone=us-central1-c &
+        sleep 10
 
     - name: 'Install dependencies for tests'
       run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpq-dev
@@ -51,6 +62,7 @@ jobs:
       run: cargo install diesel_cli --no-default-features --features postgres
 
     - name: Run migrations
+      # This step now uses the updated DATABASE_URL pointing to localhost
       run: diesel setup
 
     - name: 'Run Integration Tests against Cloud Run'
