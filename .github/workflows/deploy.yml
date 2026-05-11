@@ -38,11 +38,19 @@ jobs:
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
 
-    - name: 'Fetch DATABASE_URL from Secret Manager'
+    - name: 'Start IAP Tunnel and Setup Database Connection'
       run: |
-        DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
+        RAW_DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
+        echo "::add-mask::$RAW_DB_URL"
+
+        # Modify the internal IP to localhost
+        DB_URL=$(echo $RAW_DB_URL | sed -e 's|@[0-9.]*:|@localhost:|')
         echo "::add-mask::$DB_URL"
         echo "DATABASE_URL=$DB_URL" >> $GITHUB_ENV
+
+        ZONE=$(gcloud compute instances list --filter="name=postgres-vm" --format="value(zone)")
+        gcloud compute start-iap-tunnel postgres-vm 5432 --local-host-port=localhost:5432 --zone=$ZONE --project=${{ env.PROJECT_ID }} &
+        sleep 5 # Wait for the tunnel to establish
 
     - name: 'Install dependencies for tests'
       run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpq-dev
@@ -57,4 +65,4 @@ jobs:
       run: |
         export CLOUD_RUN_URL="${{ steps.deploy.outputs.url }}"
         export GCP_IDENTITY_TOKEN=$(gcloud auth print-identity-token --audiences="${{ steps.deploy.outputs.url }}")
-        cargo test --test integration_tests test_cloud_run_grpc
+        cargo test --test integration_tests
