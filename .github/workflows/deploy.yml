@@ -38,29 +38,23 @@ jobs:
         project_id: '${{ env.PROJECT_ID }}'
         flags: '--no-allow-unauthenticated --use-http2 --port=8080'
 
-    - name: 'Start IAP Tunnel and Setup Database Connection'
+    - name: 'Fetch and Prepare DATABASE_URL'
       run: |
-        RAW_DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
-        echo "::add-mask::$RAW_DB_URL"
-
-        # Modify the internal IP to localhost
-        DB_URL=$(echo $RAW_DB_URL | sed -e 's|@[0-9.]*:|@localhost:|')
+        DB_URL=$(gcloud secrets versions access latest --secret="DATABASE_URL")
         echo "::add-mask::$DB_URL"
-
-        TUNNEL_URL=$(echo $DB_URL | sed 's/10\.128\.0\.3/localhost/')
-
+        # Use localhost:5433 to avoid conflicts on 5432
+        TUNNEL_URL=$(echo $DB_URL | sed 's/10\.128\.0\.3:5432/localhost:5433/')
         echo "DATABASE_URL=$TUNNEL_URL" >> $GITHUB_ENV
 
     - name: 'Open Secure Tunnel'
       run: |
+        # Redirect output to a log file to help debug if it fails again
         gcloud compute start-iap-tunnel postgres-vm 5432 \
-            --local-host-port=localhost:5432 \
-            --zone=us-central1-c &
+            --local-host-port=localhost:5433 \
+            --zone=us-central1-c > iap_log.txt 2>&1 &
         sleep 10
-
-        ZONE=$(gcloud compute instances list --filter="name=postgres-vm" --format="value(zone)")
-        gcloud compute start-iap-tunnel postgres-vm 5432 --local-host-port=localhost:5432 --zone=$ZONE --project=${{ env.PROJECT_ID }} &
-        sleep 5 # Wait for the tunnel to establish
+        # Optional: Print the log if the next step fails
+        cat iap_log.txt
 
     - name: 'Install dependencies for tests'
       run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpq-dev
