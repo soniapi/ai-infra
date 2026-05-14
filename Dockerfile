@@ -1,15 +1,25 @@
-# BUILD STAGE (using Debian 12 Bookworm)
-FROM rust:1.88-slim-bookworm as builder
-WORKDIR /app
-RUN apt-get update && apt-get install -y protobuf-compiler libpq-dev
-COPY . .
-RUN cargo build --release --bin server
+# BUILD STAGE
+FROM rust:1.88-slim-bookworm AS builder
 
-# RUNTIME STAGE (MUST also use Debian 12 Bookworm)
+# Install build dependencies
+RUN apt-get update && apt-get install -y libpq-dev pkg-config libssl-dev
+
+WORKDIR /usr/src/app
+COPY . .
+
+# Build the rest API
+RUN cargo build --release --bin rest_api
+
+# RUNTIME STAGE
 FROM debian:bookworm-slim
-WORKDIR /app
-# Install necessary runtime libs for Rust/gRPC
-RUN apt-get update && apt-get install -y protobuf-compiler libpq-dev ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/server /app/server
+
+# Install necessary runtime libs for PostgreSQL and OpenSSL
+RUN apt-get update && apt-get install -y libpq-dev ca-certificates libc6 libssl3 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/app
+COPY --from=builder /usr/src/app/target/release/rest_api /usr/local/bin/rest_api
+
 EXPOSE 8080
-CMD ["/app/server"]
+ENV PORT=8080
+
+CMD ["rest_api"]
