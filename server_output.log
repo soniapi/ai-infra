@@ -1,0 +1,8 @@
+   Compiling ai_infra v0.1.0 (/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.76s
+     Running `target/debug/rest_api`
+REST API server listening on 0.0.0.0:8082
+
+thread 'main' (296377) panicked at src/bin/rest_api.rs:138:50:
+called `Result::unwrap()` on an `Err` value: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
