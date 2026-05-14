@@ -1,5 +1,5 @@
 # BUILD STAGE (using Debian 12 Bookworm)
-FROM rust:1.85-slim-bookworm as builder
+FROM rust:1.88-slim-bookworm as builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y libpq-dev
 COPY . .
