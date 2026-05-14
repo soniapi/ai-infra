@@ -260,3 +260,101 @@ fn test_establish_connection_invalid_url() {
     }
 }
 
+
+struct ProcessGuard(std::process::Child);
+
+impl Drop for ProcessGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_rest_api_upload() {
+    use std::process::Command;
+    use std::time::Duration;
+    use reqwest::{Client, multipart};
+    use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods};
+    use ai_infra::schema::objects::dsl::*;
+
+    let port = "8085";
+
+    // Spawn the REST API server in the background
+    let server_process = Command::new("cargo")
+        .args(["run", "--bin", "rest_api"])
+        .env("PORT", port)
+        .spawn()
+        .expect("Failed to start REST API server");
+
+    let _guard = ProcessGuard(server_process);
+
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{}/upload", port);
+
+    // Wait for the server to start
+    let mut retries = 0;
+    loop {
+        match client.get(&url).send().await {
+            Ok(_) | Err(_) => {
+                // We just want to see if it's accepting connections.
+                // A 405 Method Not Allowed is fine because GET isn't allowed,
+                // and connection refused means it's not up yet.
+                let resp = client.get(&url).send().await;
+                if let Ok(r) = resp {
+                    if r.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                        break;
+                    }
+                }
+            }
+        }
+        retries += 1;
+        if retries > 50 {
+            panic!("REST API server failed to start in time");
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // Read the dummy file
+    let file_bytes = std::fs::read("tests/test_data.xlsx").expect("Failed to read test excel file");
+
+    let part_f = multipart::Part::bytes(file_bytes)
+        .file_name("test_data.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let part_t = multipart::Part::text("Sheet1");
+    let part_p = multipart::Part::text("");
+    let part_r = multipart::Part::text("5");
+
+    let form = multipart::Form::new()
+        .part("f", part_f)
+        .part("t", part_t)
+        .part("p", part_p)
+        .part("r", part_r);
+
+    let res = client.post(&url)
+        .multipart(form)
+        .send()
+        .await
+        .expect("Failed to send multipart request");
+
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+    // Verify database inserts non-destructively
+    let mut conn = establish_connection();
+
+    let results: Vec<ai_infra::models::Object> = objects
+        .order(id.desc())
+        .limit(3)
+        .load(&mut conn)
+        .expect("Error loading objects");
+
+    assert!(!results.is_empty(), "Should have inserted rows into the database");
+    assert_eq!(results.len(), 3, "Expected 3 valid rows to be processed");
+
+    // Assert specific values based on test_data.xlsx (in reverse order due to desc())
+    assert_eq!(results[0].t, "test4");
+    assert_eq!(results[1].t, "test2");
+    assert_eq!(results[2].t, "test1");
+}
