@@ -1,16 +1,25 @@
-# BUILD STAGE (using Debian 12 Bookworm)
-FROM rust:1.85-slim-bookworm as builder
-WORKDIR /app
-RUN apt-get update && apt-get install -y libpq-dev
+# BUILD STAGE
+FROM rust:1.85-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y libpq-dev pkg-config
+
+WORKDIR /usr/src/app
 COPY . .
+
+# Build the rest API
 RUN cargo build --release --bin rest_api
 
-# RUNTIME STAGE (MUST also use Debian 12 Bookworm)
+# RUNTIME STAGE
 FROM debian:bookworm-slim
-WORKDIR /app
+
 # Install necessary runtime libs for PostgreSQL
 RUN apt-get update && apt-get install -y libpq-dev ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/rest_api /app/rest_api
+
+WORKDIR /usr/src/app
+COPY --from=builder /usr/src/app/target/release/rest_api /usr/local/bin/rest_api
+
 EXPOSE 8080
 ENV PORT=8080
-CMD ["/app/rest_api"]
+
+CMD ["rest_api"]
