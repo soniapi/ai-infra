@@ -2,7 +2,7 @@
 FROM rust:1.85-slim-bookworm AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y libpq-dev pkg-config
+RUN apt-get update && apt-get install -y libpq-dev pkg-config libssl-dev
 
 WORKDIR /usr/src/app
 COPY . .
@@ -13,8 +13,8 @@ RUN cargo build --release --bin rest_api
 # RUNTIME STAGE
 FROM debian:bookworm-slim
 
-# Install necessary runtime libs for PostgreSQL
-RUN apt-get update && apt-get install -y libpq-dev ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
+# Install necessary runtime libs for PostgreSQL and OpenSSL
+RUN apt-get update && apt-get install -y libpq-dev ca-certificates libc6 libssl3 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 COPY --from=builder /usr/src/app/target/release/rest_api /usr/local/bin/rest_api
