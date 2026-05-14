@@ -7,8 +7,7 @@ on:
 env:
   PROJECT_ID: ai-infra-grpc
   REGION: us-central1
-  SERVICE: server
-  PROTOC: /usr/bin/protoc
+  SERVICE: rest-api
 
 jobs:
   deploy:
@@ -36,7 +35,7 @@ jobs:
         region: '${{ env.REGION }}'
         source: '.'
         project_id: '${{ env.PROJECT_ID }}'
-        flags: '--no-allow-unauthenticated --use-http2 --port=8080'
+        flags: '--allow-unauthenticated --port=8080'
 
     - name: 'Fetch and Prepare DATABASE_URL'
       run: |
@@ -57,7 +56,7 @@ jobs:
         cat iap_log.txt
 
     - name: 'Install dependencies for tests'
-      run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libpq-dev
+      run: sudo apt-get update && sudo apt-get install -y libpq-dev
 
     - name: Install diesel_cli
       run: cargo install diesel_cli --no-default-features --features postgres
@@ -66,8 +65,6 @@ jobs:
       # This step now uses the updated DATABASE_URL pointing to localhost
       run: diesel setup
 
-    - name: 'Run Integration Tests against Cloud Run'
+    - name: 'Run Integration Tests'
       run: |
-        export CLOUD_RUN_URL="${{ steps.deploy.outputs.url }}"
-        export GCP_IDENTITY_TOKEN=$(gcloud auth print-identity-token --audiences="${{ steps.deploy.outputs.url }}")
         cargo test --test integration_tests
