@@ -260,6 +260,7 @@ fn test_establish_connection_invalid_url() {
     }
 }
 
+
 struct ProcessGuard(std::process::Child);
 
 impl Drop for ProcessGuard {
@@ -271,112 +272,89 @@ impl Drop for ProcessGuard {
 
 #[tokio::test]
 #[serial]
-async fn test_grpc_hypothesis_context() {
+async fn test_rest_api_upload() {
     use std::process::Command;
     use std::time::Duration;
-    use ai_infra::schema_service::context_service_client::ContextServiceClient;
-    use ai_infra::schema_service::HypothesisContextRequest;
+    use reqwest::{Client, multipart};
+    use diesel::{RunQueryDsl, QueryDsl, ExpressionMethods};
+    use ai_infra::schema::objects::dsl::*;
 
-    // Spawn the gRPC server in the background using the compiled binary
+    let port = "8085";
+
+    // Spawn the REST API server in the background
     let server_process = Command::new("cargo")
-        .args(["run", "--bin", "server"])
+        .args(["run", "--bin", "rest_api"])
+        .env("PORT", port)
         .spawn()
-        .expect("Failed to start server");
+        .expect("Failed to start REST API server");
 
     let _guard = ProcessGuard(server_process);
 
-    let result = async {
-        // Wait for the server to start by retrying the connection
-        let mut retries = 0;
-        let mut client = loop {
-            match ContextServiceClient::connect("http://127.0.0.1:8080").await {
-                Ok(c) => break c,
-                Err(e) => {
-                    if retries > 40 {
-                        return Err(e.into());
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{}/upload", port);
+
+    // Wait for the server to start
+    let mut retries = 0;
+    loop {
+        match client.get(&url).send().await {
+            Ok(_) | Err(_) => {
+                // We just want to see if it's accepting connections.
+                // A 405 Method Not Allowed is fine because GET isn't allowed,
+                // and connection refused means it's not up yet.
+                let resp = client.get(&url).send().await;
+                if let Ok(r) = resp {
+                    if r.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                        break;
                     }
-                    retries += 1;
-                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             }
-        };
-
-        let request = tonic::Request::new(HypothesisContextRequest {
-            target_table: "objects".to_string(),
-            since_timestamp: "2023-01-01".to_string(),
-        });
-
-        let response = client.get_hypothesis_context(request).await?;
-        let inner = response.into_inner();
-
-        let schema_names: Vec<String> = inner.schema.into_iter().map(|c| c.column_name).collect();
-        assert!(schema_names.contains(&"id".to_string()));
-        assert!(schema_names.contains(&"d".to_string()));
-        assert!(inner.stats.is_empty());
-
-        Ok::<(), Box<dyn std::error::Error>>(())
-    }.await;
-
-    // Assert that the test passed
-    result.expect("gRPC test failed");
-}
-
-#[tokio::test]
-#[serial]
-async fn test_cloud_run_grpc() {
-    use ai_infra::schema_service::context_service_client::ContextServiceClient;
-    use ai_infra::schema_service::HypothesisContextRequest;
-    use std::env;
-
-    // Check if CLOUD_RUN_URL is provided, if not skip the test
-    let cloud_run_url = match env::var("CLOUD_RUN_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            println!("Skipping test_cloud_run_grpc: CLOUD_RUN_URL environment variable is not set.");
-            return;
         }
-    };
+        retries += 1;
+        if retries > 50 {
+            panic!("REST API server failed to start in time");
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
-    println!("Testing against Cloud Run URL: {}", cloud_run_url);
+    // Read the dummy file
+    let file_bytes = std::fs::read("tests/test_data.xlsx").expect("Failed to read test excel file");
 
-    // Connect to the Cloud Run gRPC service
-    let channel = tonic::transport::Channel::from_shared(cloud_run_url)
-        .expect("Invalid Cloud Run URL")
-        .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
-        .expect("Failed to configure TLS")
-        .connect()
+    let part_f = multipart::Part::bytes(file_bytes)
+        .file_name("test_data.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let part_t = multipart::Part::text("Sheet1");
+    let part_p = multipart::Part::text("");
+    let part_r = multipart::Part::text("5");
+
+    let form = multipart::Form::new()
+        .part("f", part_f)
+        .part("t", part_t)
+        .part("p", part_p)
+        .part("r", part_r);
+
+    let res = client.post(&url)
+        .multipart(form)
+        .send()
         .await
-        .expect("Failed to connect to Cloud Run service");
+        .expect("Failed to send multipart request");
 
-    let request = tonic::Request::new(HypothesisContextRequest {
-        target_table: "objects".to_string(),
-        since_timestamp: "2023-01-01".to_string(),
-    });
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-    let response = if let Ok(token) = env::var("GCP_IDENTITY_TOKEN") {
-        println!("Using GCP_IDENTITY_TOKEN for authentication");
-        let interceptor = move |mut req: tonic::Request<()>| {
-            let bearer_token = format!("Bearer {}", token);
-            let meta_value = bearer_token.parse().unwrap();
-            req.metadata_mut().insert("authorization".parse::<tonic::metadata::MetadataKey<_>>().unwrap(), meta_value);
-            Ok(req)
-        };
-        let mut client = ContextServiceClient::with_interceptor(channel, interceptor);
-        client.get_hypothesis_context(request).await
-    } else {
-        println!("No GCP_IDENTITY_TOKEN provided, attempting unauthenticated request");
-        let mut client = ContextServiceClient::new(channel);
-        client.get_hypothesis_context(request).await
-    }.expect("Failed to get response from Cloud Run service");
+    // Verify database inserts non-destructively
+    let mut conn = establish_connection();
 
-    let inner = response.into_inner();
+    let results: Vec<ai_infra::models::Object> = objects
+        .order(id.desc())
+        .limit(3)
+        .load(&mut conn)
+        .expect("Error loading objects");
 
-    // Verify the schema
-    let schema_names: Vec<String> = inner.schema.into_iter().map(|c| c.column_name).collect();
-    assert!(schema_names.contains(&"id".to_string()));
-    assert!(schema_names.contains(&"d".to_string()));
-    assert!(schema_names.contains(&"t".to_string()));
-    assert!(schema_names.contains(&"p".to_string()));
-    assert!(schema_names.contains(&"s".to_string()));
-    assert!(schema_names.contains(&"c".to_string()));
+    assert!(!results.is_empty(), "Should have inserted rows into the database");
+    assert_eq!(results.len(), 3, "Expected 3 valid rows to be processed");
+
+    // Assert specific values based on test_data.xlsx (in reverse order due to desc())
+    assert_eq!(results[0].t, "test4");
+    assert_eq!(results[1].t, "test2");
+    assert_eq!(results[2].t, "test1");
 }
