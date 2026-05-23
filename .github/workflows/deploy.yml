@@ -38,7 +38,7 @@ jobs:
         region: '${{ env.REGION }}'
         source: '.'
         project_id: '${{ env.PROJECT_ID }}'
-        flags: '--allow-unauthenticated --port=8080'
+        flags: '--allow-unauthenticated --port=8080 --set-secrets="DATABASE_URL=DATABASE_URL:latest"'
 
     - name: 'Fetch and Prepare DATABASE_URL'
       run: |
@@ -46,6 +46,7 @@ jobs:
         echo "::add-mask::$DB_URL"
         # Use localhost:5433 to avoid conflicts on 5432
         TUNNEL_URL=$(echo $DB_URL | sed 's/10\.128\.0\.3:5432/localhost:5433/')
+        echo "::add-mask::$TUNNEL_URL"
         echo "DATABASE_URL=$TUNNEL_URL" >> $GITHUB_ENV
 
     - name: 'Open Secure Tunnel'
