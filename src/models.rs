@@ -1,8 +1,8 @@
-use diesel::prelude::*;
 use chrono::NaiveDateTime;
+use diesel::prelude::*;
 
- use crate::schema::objects;
- use crate::schema::objects_s;
+use crate::schema::objects;
+use crate::schema::objects_s;
 
 #[derive(Queryable, Selectable, Debug)]
 #[diesel(table_name = objects)]
@@ -47,4 +47,3 @@ pub struct NewObjectS {
     pub s: f32,
     pub c: f32,
 }
-
