@@ -1,8 +1,8 @@
 use calamine::DataType;
 use std::any::type_name;
-use std::io::{self, Write, BufRead};
 use std::error::Error;
 use std::fmt;
+use std::io::{self, BufRead, Write};
 
 pub fn convert(data: &DataType) -> Option<f32> {
     match data {
@@ -20,16 +20,15 @@ pub fn read_input_option<R: BufRead>(reader: &mut R) -> Option<String> {
 
     match reader.read_line(&mut o) {
         Ok(0) => None,
-        Ok(_) =>  {
-           let trimmed_o = o.trim_end().to_owned(); 
-           if trimmed_o.is_empty() {
+        Ok(_) => {
+            let trimmed_o = o.trim_end().to_owned();
+            if trimmed_o.is_empty() {
                 None
-            }
-            else {
+            } else {
                 Some(trimmed_o)
             }
         }
-        Err(_) => None, 
+        Err(_) => None,
     }
 }
 
@@ -45,7 +44,10 @@ pub fn inputs_option_from<R: BufRead>(reader: &mut R) -> Option<String> {
 
 use calamine::{Reader, open_workbook_auto};
 
-pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (String, String, Option<String>, Option<i32>) {
+pub fn inputs_from<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> (String, String, Option<String>, Option<i32>) {
     writer.flush().expect("Failed to flush stdout");
     writeln!(writer, "Enter your file path:").unwrap();
     let mut f = String::new();
@@ -61,19 +63,29 @@ pub fn inputs_from<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> (Str
 
     if trimmed_t.is_empty()
         && let Ok(workbook) = open_workbook_auto(&trimmed_f)
-            && let Some(first_sheet) = workbook.sheet_names().first() {
-                trimmed_t = first_sheet.to_string();
-            }
+        && let Some(first_sheet) = workbook.sheet_names().first()
+    {
+        trimmed_t = first_sheet.to_string();
+    }
     writeln!(writer, "Your input:{:?}", trimmed_t).unwrap();
 
     writer.flush().expect("Failed to flush stdout");
-    writeln!(writer, "Enter your partition type (no partition press enter):").unwrap();
+    writeln!(
+        writer,
+        "Enter your partition type (no partition press enter):"
+    )
+    .unwrap();
     let trimmed_p: Option<String> = read_input_option(reader);
     writeln!(writer, "Your input {:?}", trimmed_p).unwrap();
 
     writer.flush().expect("Failed to flush stdout");
-    writeln!(writer, "Enter how many rows to deserialize (all rows press enter):").unwrap();
-    let trimmed_r: Option<i32> = read_input_option(reader).and_then(|trimmed_r: String| trimmed_r.parse::<i32>().ok());
+    writeln!(
+        writer,
+        "Enter how many rows to deserialize (all rows press enter):"
+    )
+    .unwrap();
+    let trimmed_r: Option<i32> =
+        read_input_option(reader).and_then(|trimmed_r: String| trimmed_r.parse::<i32>().ok());
     writeln!(writer, "Your input {:?}", trimmed_r).unwrap();
 
     (trimmed_f, trimmed_t, trimmed_p, trimmed_r)
@@ -89,10 +101,10 @@ pub fn inputs() -> (String, String, Option<String>, Option<i32>) {
 pub fn errors() -> Result<(), Box<dyn Error>> {
     let message = "Error";
     #[derive(Debug)]
-    struct BaseError(String); 
+    struct BaseError(String);
     impl fmt::Display for BaseError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{}", self.0)
+            write!(f, "{}", self.0)
         }
     }
     impl Error for BaseError {}
@@ -138,7 +150,10 @@ mod tests {
     fn test_read_input_option_happy_path() {
         let input = b"valid input\n";
         let mut reader = &input[..];
-        assert_eq!(read_input_option(&mut reader), Some("valid input".to_string()));
+        assert_eq!(
+            read_input_option(&mut reader),
+            Some("valid input".to_string())
+        );
     }
 
     #[test]
@@ -173,7 +188,10 @@ mod tests {
     fn test_read_input_option_no_newline() {
         let input = b"no newline";
         let mut reader = &input[..];
-        assert_eq!(read_input_option(&mut reader), Some("no newline".to_string()));
+        assert_eq!(
+            read_input_option(&mut reader),
+            Some("no newline".to_string())
+        );
     }
 }
 
@@ -209,7 +227,10 @@ mod io_tests {
     #[test]
     fn test_inputs_option_from_valid_with_spaces() {
         let mut reader = &b"  hello world  \n"[..];
-        assert_eq!(read_input_option(&mut reader), Some("  hello world".to_string()));
+        assert_eq!(
+            read_input_option(&mut reader),
+            Some("  hello world".to_string())
+        );
     }
 
     #[test]
