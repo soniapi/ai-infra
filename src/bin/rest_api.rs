@@ -173,9 +173,17 @@ async fn info_handler(Query(params): Query<InfoParams>) -> impl IntoResponse {
     }
 }
 
-async fn migrations_handler() -> impl IntoResponse {
+async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
         let mut conn = establish_connection_to(None)?;
+
+        if let Some(axum::extract::Query(p)) = params {
+            if p.clear.unwrap_or(false) {
+                conn.revert_last_migration(MIGRATIONS)
+                    .map_err(|e| format!("Error reverting migration: {}", e))?;
+            }
+        }
+
         let applied = conn
             .applied_migrations()
             .map_err(|e| format!("Error getting applied migrations: {}", e))?;
@@ -185,10 +193,24 @@ async fn migrations_handler() -> impl IntoResponse {
 
         let mut statuses = Vec::new();
 
+        let all_embedded = diesel::migration::MigrationSource::<diesel::pg::Pg>::migrations(&MIGRATIONS)
+            .map_err(|e| format!("Error getting embedded migrations: {}", e))?;
+
         for m in applied {
+            let version_str = m.to_string();
+            let mut name_str = version_str.clone();
+
+            for emb in &all_embedded {
+                let emb_v = emb.name().version().to_string();
+                if emb_v == version_str || emb_v.replace("-", "") == version_str.replace("-", "") {
+                    name_str = emb.name().to_string();
+                    break;
+                }
+            }
+
             statuses.push(MigrationStatus {
-                name: m.to_string(),
-                version: m.to_string(),
+                name: name_str,
+                version: version_str,
                 applied: true,
             });
         }
