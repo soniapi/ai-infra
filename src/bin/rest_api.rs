@@ -1,24 +1,27 @@
 use axum::{
-    extract::{Multipart, DefaultBodyLimit},
+    Router,
+    extract::{DefaultBodyLimit, Multipart},
     http::StatusCode,
     response::IntoResponse,
     routing::post,
-    Router,
 };
 use std::env;
+use std::io::Cursor;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
-use std::io::Cursor;
 
 use calamine::open_workbook_auto_from_rs;
 
 use ai_infra::models::{NewObject, NewObjectS};
 use ai_infra::{create_objects, create_objects_s, establish_connection, process_workbook};
-use axum::extract::Query;
 use axum::Json;
+use axum::extract::Query;
 use diesel::prelude::*;
 use diesel::sql_query;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use serde::{Deserialize, Serialize};
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 #[derive(Deserialize)]
 struct InfoParams {
@@ -65,8 +68,16 @@ struct DdlResult {
     ddl: String,
 }
 
+#[derive(Serialize)]
+struct MigrationStatus {
+    name: String,
+    version: String,
+    applied: bool,
+}
+
 fn establish_connection_to(db_name: Option<&str>) -> Result<PgConnection, String> {
-    let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL must be set".to_string())?;
+    let database_url =
+        env::var("DATABASE_URL").map_err(|_| "DATABASE_URL must be set".to_string())?;
     let url = if let Some(db) = db_name {
         let parts: Vec<&str> = database_url.rsplitn(2, '/').collect();
         if parts.len() == 2 {
@@ -148,7 +159,58 @@ async fn info_handler(Query(params): Query<InfoParams>) -> impl IntoResponse {
     match result {
         Ok(Ok(json)) => (StatusCode::OK, Json(json)).into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, e).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Task execution failed: {}", e)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task execution failed: {}", e),
+        )
+            .into_response(),
+    }
+}
+
+async fn migrations_handler() -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let mut conn = establish_connection_to(None)?;
+        let applied = conn
+            .applied_migrations()
+            .map_err(|e| format!("Error getting applied migrations: {}", e))?;
+        let pending = conn
+            .pending_migrations(MIGRATIONS)
+            .map_err(|e| format!("Error getting pending migrations: {}", e))?;
+
+        let mut statuses = Vec::new();
+
+        for m in applied {
+            statuses.push(MigrationStatus {
+                name: m.to_string(),
+                version: m.to_string(),
+                applied: true,
+            });
+        }
+
+        for m in pending {
+            let version = m.name().version().to_string();
+            statuses.push(MigrationStatus {
+                name: m.name().to_string(),
+                version,
+                applied: false,
+            });
+        }
+
+        // Sort migrations by version
+        statuses.sort_by(|a, b| a.version.cmp(&b.version));
+
+        Ok(serde_json::to_value(statuses).unwrap())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(json)) => (StatusCode::OK, Json(json)).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task execution failed: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -197,7 +259,8 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
         let cursor = Cursor::new(file_bytes);
 
-        let mut excel = open_workbook_auto_from_rs(cursor).map_err(|e| format!("Error parsing workbook: {}", e))?;
+        let mut excel = open_workbook_auto_from_rs(cursor)
+            .map_err(|e| format!("Error parsing workbook: {}", e))?;
 
         let connection = &mut establish_connection();
 
@@ -206,37 +269,42 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
         let mut objects_s = Vec::with_capacity(1000);
         let mut total_inserted = 0;
 
-        process_workbook(&mut excel, &tab_name, row_limit, |d, t_val, p_val, s_val| {
-            if is_partition_s {
-                objects_s.push(NewObjectS {
-                    d: *d,
-                    t: t_val.to_string(),
-                    p: p_val,
-                    s: s_val,
-                    c: 0.0,
-                });
-                if objects_s.len() >= 1000 {
-                    if let Ok(count) = create_objects_s(connection, &objects_s) {
-                        total_inserted += count;
+        process_workbook(
+            &mut excel,
+            &tab_name,
+            row_limit,
+            |d, t_val, p_val, s_val| {
+                if is_partition_s {
+                    objects_s.push(NewObjectS {
+                        d: *d,
+                        t: t_val.to_string(),
+                        p: p_val,
+                        s: s_val,
+                        c: 0.0,
+                    });
+                    if objects_s.len() >= 1000 {
+                        if let Ok(count) = create_objects_s(connection, &objects_s) {
+                            total_inserted += count;
+                        }
+                        objects_s.clear();
                     }
-                    objects_s.clear();
-                }
-            } else {
-                objects.push(NewObject {
-                    d: *d,
-                    t: t_val.to_string(),
-                    p: p_val,
-                    s: s_val,
-                    c: 0.0,
-                });
-                if objects.len() >= 1000 {
-                    if let Ok(count) = create_objects(connection, &objects) {
-                        total_inserted += count;
+                } else {
+                    objects.push(NewObject {
+                        d: *d,
+                        t: t_val.to_string(),
+                        p: p_val,
+                        s: s_val,
+                        c: 0.0,
+                    });
+                    if objects.len() >= 1000 {
+                        if let Ok(count) = create_objects(connection, &objects) {
+                            total_inserted += count;
+                        }
+                        objects.clear();
                     }
-                    objects.clear();
                 }
-            }
-        });
+            },
+        );
 
         if !objects_s.is_empty() {
             if let Ok(count) = create_objects_s(connection, &objects_s) {
@@ -250,12 +318,24 @@ async fn upload_handler(mut multipart: Multipart) -> impl IntoResponse {
         }
 
         Ok(total_inserted)
-    }).await;
+    })
+    .await;
 
     match result {
-        Ok(Ok(count)) => (StatusCode::OK, format!("File received and processed successfully. Inserted {} rows.", count)).into_response(),
+        Ok(Ok(count)) => (
+            StatusCode::OK,
+            format!(
+                "File received and processed successfully. Inserted {} rows.",
+                count
+            ),
+        )
+            .into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, e).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Task execution failed: {}", e)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task execution failed: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -268,6 +348,7 @@ async fn main() {
     let app = Router::new()
         .route("/upload", post(upload_handler))
         .route("/info", axum::routing::get(info_handler))
+        .route("/migrations", axum::routing::get(migrations_handler))
         .layer(DefaultBodyLimit::disable())
         .layer(CorsLayer::permissive());
 
