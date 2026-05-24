@@ -1,16 +1,16 @@
+use crate::helpers::convert;
+use calamine::{Reader, Xlsx, open_workbook};
+use chrono::NaiveDateTime;
+use diesel::RunQueryDsl;
 use diesel::prelude::*;
 use diesel::sql_query;
-use diesel::RunQueryDsl;
 use dotenvy::dotenv;
 use std::env;
-use chrono::NaiveDateTime;
 use std::error::Error;
-use calamine::{Xlsx, open_workbook, Reader};
-use crate::helpers::convert;
 
+pub mod helpers;
 pub mod models;
 pub mod schema;
-pub mod helpers;
 
 pub enum ObjectType {
     None(Object),
@@ -21,39 +21,66 @@ pub fn establish_connection() -> PgConnection {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url).unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+    PgConnection::establish(&database_url)
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
-use self::models::{NewObject, Object, NewObjectS, ObjectS};
+use self::models::{NewObject, NewObjectS, Object, ObjectS};
 
-pub fn create_object(connection: &mut PgConnection, partition: Option<&String>, d: &NaiveDateTime, t: &String, p: &f32, s: &f32, c: &f32) -> Result<ObjectType, Box<dyn Error>> {
+pub fn create_object(
+    connection: &mut PgConnection,
+    partition: Option<&String>,
+    d: &NaiveDateTime,
+    t: &String,
+    p: &f32,
+    s: &f32,
+    c: &f32,
+) -> Result<ObjectType, Box<dyn Error>> {
     match partition {
         None => {
             println!("No partition");
             use crate::schema::objects;
-            let new_object = NewObject { d: *d, t: t.clone(), p: *p, s: *s, c: *c };
+            let new_object = NewObject {
+                d: *d,
+                t: t.clone(),
+                p: *p,
+                s: *s,
+                c: *c,
+            };
             Ok(ObjectType::None(
                 diesel::insert_into(objects::table)
-                .values(&new_object)
-                .returning(Object::as_returning())
-                .get_result(connection)
-                .expect("Error saving new object")))
-        },
+                    .values(&new_object)
+                    .returning(Object::as_returning())
+                    .get_result(connection)
+                    .expect("Error saving new object"),
+            ))
+        }
         Some(value) if value == "s" => {
             println!("Partition: {:?}", value);
             use crate::schema::objects_s;
-            let new_object_s = NewObjectS { d: *d, t: t.clone(), p: *p, s: *s, c: *c };
-            Ok(ObjectType::S(diesel::insert_into(objects_s::table)
-                .values(&new_object_s)
-                .returning(ObjectS::as_returning())
-                .get_result(connection)
-                .expect("Error saving new object_s in partioned table")))
-        },
+            let new_object_s = NewObjectS {
+                d: *d,
+                t: t.clone(),
+                p: *p,
+                s: *s,
+                c: *c,
+            };
+            Ok(ObjectType::S(
+                diesel::insert_into(objects_s::table)
+                    .values(&new_object_s)
+                    .returning(ObjectS::as_returning())
+                    .get_result(connection)
+                    .expect("Error saving new object_s in partioned table"),
+            ))
+        }
         _ => Err("Error".into()),
     }
 }
 
-pub fn create_objects(connection: &mut PgConnection, objects: &[NewObject]) -> Result<usize, Box<dyn Error>> {
+pub fn create_objects(
+    connection: &mut PgConnection,
+    objects: &[NewObject],
+) -> Result<usize, Box<dyn Error>> {
     use crate::schema::objects;
     let count = diesel::insert_into(objects::table)
         .values(objects)
@@ -61,7 +88,10 @@ pub fn create_objects(connection: &mut PgConnection, objects: &[NewObject]) -> R
     Ok(count)
 }
 
-pub fn create_objects_s(connection: &mut PgConnection, objects: &[NewObjectS]) -> Result<usize, Box<dyn Error>> {
+pub fn create_objects_s(
+    connection: &mut PgConnection,
+    objects: &[NewObjectS],
+) -> Result<usize, Box<dyn Error>> {
     use crate::schema::objects_s;
     let count = diesel::insert_into(objects_s::table)
         .values(objects)
@@ -71,13 +101,18 @@ pub fn create_objects_s(connection: &mut PgConnection, objects: &[NewObjectS]) -
 
 use std::io::{Read, Seek};
 
-pub fn process_workbook<RS: Read + Seek, R: Reader<RS>, F>(excel: &mut R, t: &str, r: Option<i32>, mut handler: F)
-where
+pub fn process_workbook<RS: Read + Seek, R: Reader<RS>, F>(
+    excel: &mut R,
+    t: &str,
+    r: Option<i32>,
+    mut handler: F,
+) where
     F: FnMut(&NaiveDateTime, &String, f32, f32),
 {
     if let Some(Ok(range)) = excel.worksheet_range(t) {
         let rows = range.rows().skip(1);
-        let row_iter: Box<dyn Iterator<Item = &[calamine::DataType]> + '_> = if let Some(limit) = r {
+        let row_iter: Box<dyn Iterator<Item = &[calamine::DataType]> + '_> = if let Some(limit) = r
+        {
             Box::new(rows.take(limit as usize))
         } else {
             Box::new(rows)
@@ -153,23 +188,16 @@ pub struct DdlResult {
     pub ddl: String,
 }
 
-pub fn divider_sql(conn: &mut PgConnection, divider_value: f32) -> (String, String, String, String) {
+pub fn divider_sql(
+    conn: &mut PgConnection,
+    divider_value: f32,
+) -> (String, String, String, String) {
     let partitioned_table = "objects_s";
     let below = "_below_";
     let above = "_above_";
 
-    let partition_name_below = format!(
-        "{}{}{}",
-        partitioned_table,
-        below,
-        divider_value
-    );
-    let partition_name_above = format!(
-        "{}{}{}",
-        partitioned_table,
-        above,
-        divider_value
-    );
+    let partition_name_below = format!("{}{}{}", partitioned_table, below, divider_value);
+    let partition_name_above = format!("{}{}{}", partitioned_table, above, divider_value);
 
     let sql_below = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (MINVALUE) TO (%L)', $1, $2, $3) as ddl")
         .bind::<diesel::sql_types::Text, _>(&partition_name_below)
@@ -216,9 +244,10 @@ fn check_table_exists(conn: &mut PgConnection, table_name: &str) -> bool {
     .bind::<diesel::sql_types::Text, _>(table_name);
 
     if let Ok(mut results) = query.load::<ExistsResult>(conn)
-        && let Some(res) = results.pop() {
-            return res.exists;
-        }
+        && let Some(res) = results.pop()
+    {
+        return res.exists;
+    }
     false
 }
 
@@ -227,9 +256,10 @@ fn check_table_health(conn: &mut PgConnection, table_name: &str) -> bool {
         .bind::<diesel::sql_types::Text, _>(table_name);
 
     if let Ok(mut results) = query.load::<DdlResult>(conn)
-        && let Some(res) = results.pop() {
-            return sql_query(res.ddl).execute(conn).is_ok();
-        }
+        && let Some(res) = results.pop()
+    {
+        return sql_query(res.ddl).execute(conn).is_ok();
+    }
     false
 }
 
