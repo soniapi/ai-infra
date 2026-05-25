@@ -19,7 +19,6 @@ use axum::extract::Query;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use diesel::migration::MigrationSource;
 use serde::{Deserialize, Serialize};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
