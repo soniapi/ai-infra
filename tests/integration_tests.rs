@@ -410,3 +410,72 @@ async fn test_rest_api_upload() {
     assert_eq!(results[1].t, "test2");
     assert_eq!(results[2].t, "test1");
 }
+
+#[tokio::test]
+#[serial]
+async fn test_rest_api_partition() {
+    use reqwest::Client;
+    use std::process::Command;
+    use std::time::Duration;
+
+    let port = "8086";
+
+    let server_process = Command::new("cargo")
+        .args(["run", "--bin", "rest_api"])
+        .env("DATABASE_URL", std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://usr:pwd@localhost:5432/name-postgres".to_string()))
+        .env("PORT", port)
+        .spawn()
+        .expect("Failed to start REST API server");
+
+    let _guard = ProcessGuard(server_process);
+
+    let client = Client::new();
+    let base_url = format!("http://127.0.0.1:{}", port);
+
+    let mut retries = 0;
+    loop {
+        match client.get(&format!("{}/info", base_url)).send().await {
+            Ok(res) if res.status().is_success() => break,
+            Ok(_) | Err(_) => {
+                let resp = client.get(&format!("{}/upload", base_url)).send().await;
+                if let Ok(r) = resp {
+                    if r.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                        break;
+                    }
+                }
+            }
+        }
+        retries += 1;
+        if retries > 50 {
+            panic!("REST API server failed to start in time");
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // Call the partition endpoint to trigger migration creation and execution
+    let res = client
+        .get(&format!("{}/partition?type=s", base_url))
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let body = res.text().await.expect("Failed to get response text");
+    assert_eq!(body, "objects_s");
+
+    // Revert the dynamically generated migration
+    let revert_res = client
+        .get(&format!("{}/migrations?clear=true", base_url))
+        .send()
+        .await
+        .expect("Failed to send revert request");
+
+    assert_eq!(revert_res.status(), reqwest::StatusCode::OK);
+
+    // Re-run original migrations so subsequent tests aren't broken
+    Command::new("diesel")
+        .args(["migration", "run"])
+        .env("DATABASE_URL", std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://usr:pwd@localhost:5432/name-postgres".to_string()))
+        .output()
+        .expect("Failed to re-run diesel migrations");
+}

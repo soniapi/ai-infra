@@ -19,7 +19,7 @@ use axum::extract::Query;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use diesel::migration::MigrationSource;
+use diesel_migrations::FileBasedMigrations;
 use serde::{Deserialize, Serialize};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -177,9 +177,12 @@ async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
         let mut conn = establish_connection_to(None)?;
 
+        let migrations = FileBasedMigrations::from_path("migrations")
+            .map_err(|e| format!("Error loading migrations: {}", e))?;
+
         if let Some(axum::extract::Query(p)) = params {
             if p.clear.unwrap_or(false) {
-                conn.revert_last_migration(MIGRATIONS)
+                conn.revert_last_migration(migrations.clone())
                     .map_err(|e| format!("Error reverting migration: {}", e))?;
             }
         }
@@ -188,12 +191,12 @@ async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams
             .applied_migrations()
             .map_err(|e| format!("Error getting applied migrations: {}", e))?;
         let pending = conn
-            .pending_migrations(MIGRATIONS)
+            .pending_migrations(migrations.clone())
             .map_err(|e| format!("Error getting pending migrations: {}", e))?;
 
         let mut statuses = Vec::new();
 
-        let all_embedded = diesel::migration::MigrationSource::<diesel::pg::Pg>::migrations(&MIGRATIONS)
+        let all_embedded = diesel::migration::MigrationSource::<diesel::pg::Pg>::migrations(&migrations.clone())
             .map_err(|e| format!("Error getting embedded migrations: {}", e))?;
 
         for m in applied {
@@ -239,6 +242,81 @@ async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams
             format!("Task execution failed: {}", e),
         )
             .into_response(),
+    }
+}
+
+
+#[derive(Deserialize)]
+struct PartitionParams {
+    #[serde(rename = "type")]
+    partition_type: String,
+}
+
+async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> impl IntoResponse {
+    let partition_type = params.partition_type.clone();
+
+    if partition_type == "s" {
+        let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+            let mut conn = establish_connection_to(None)?;
+
+            #[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
+            struct ExistsResult {
+                #[diesel(sql_type = diesel::sql_types::Bool)]
+                exists: bool,
+            }
+
+            let query = diesel::sql_query(
+                "SELECT EXISTS (
+                    SELECT FROM pg_tables
+                    WHERE schemaname = 'public'
+                    AND tablename = 'objects_s'
+                ) as exists",
+            );
+
+            let mut exists = false;
+            if let Ok(mut results) = query.load::<ExistsResult>(&mut conn) {
+                if let Some(res) = results.pop() {
+                    exists = res.exists;
+                }
+            }
+
+            if exists {
+                Ok("objects_s".to_string())
+            } else {
+                let up_sql = "CREATE TABLE objects_s (\n    id SERIAL,\n    d TIMESTAMP NOT NULL,\n    t TEXT NOT NULL,\n    p REAL NOT NULL,\n    s REAL NOT NULL,\n    c REAL NOT NULL,\n    PRIMARY KEY (id, s)\n) PARTITION BY RANGE (s);";
+                let down_sql = "DROP TABLE objects_s";
+
+                let now = chrono::Utc::now();
+                let _version_str = now.format("%Y%m%d%H%M%S").to_string();
+                let dir_name = format!("migrations/{}_create_objects_s", now.format("%Y-%m-%d-%H%M%S"));
+
+                std::fs::create_dir_all(&dir_name)
+                    .map_err(|e| format!("Failed to create migration directory: {}", e))?;
+
+                std::fs::write(format!("{}/up.sql", dir_name), up_sql)
+                    .map_err(|e| format!("Failed to write up.sql: {}", e))?;
+
+                std::fs::write(format!("{}/down.sql", dir_name), down_sql)
+                    .map_err(|e| format!("Failed to write down.sql: {}", e))?;
+
+                let migrations = diesel_migrations::FileBasedMigrations::from_path("migrations")
+                    .map_err(|e| format!("Error loading migrations: {}", e))?;
+
+                conn.run_pending_migrations(migrations.clone())
+                    .map_err(|e| format!("Failed to run dynamically generated migration: {}", e))?;
+
+                Ok("objects_s".to_string())
+            }
+        })
+        .await;
+
+        match result {
+            Ok(Ok(table_name)) => (StatusCode::OK, table_name).into_response(),
+            Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e)).into_response(),
+        }
+    } else {
+        (StatusCode::BAD_REQUEST, "Invalid partition type").into_response()
     }
 }
 
@@ -375,6 +453,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/upload", post(upload_handler))
+        .route("/partition", axum::routing::get(partition_handler))
         .route("/info", axum::routing::get(info_handler))
         .route("/migrations", axum::routing::get(migrations_handler))
         .layer(DefaultBodyLimit::disable())
