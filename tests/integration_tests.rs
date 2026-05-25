@@ -191,7 +191,7 @@ fn test_create_object_some_s_partition() {
         .unwrap();
     let t = "test_s".to_string();
     let p = 4.0;
-    let s = 5.0;
+    let s = 99999.5;
     let c = 6.0;
 
     let partition_val = "s".to_string();
