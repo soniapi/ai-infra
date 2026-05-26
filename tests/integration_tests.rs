@@ -460,8 +460,27 @@ async fn test_rest_api_partition() {
         .expect("Failed to send request");
 
     assert_eq!(res.status(), reqwest::StatusCode::OK);
-    let body = res.text().await.expect("Failed to get response text");
-    assert_eq!(body, "objects_s");
+    let response: serde_json::Value = res.json().await.expect("Failed to get JSON response");
+
+    assert_eq!(response["table_name"].as_str().unwrap(), "objects_s");
+    assert!(response["primary_key"].as_str().unwrap().contains("PRIMARY KEY") || response["primary_key"].as_str().unwrap().contains("id, s"));
+    assert_eq!(response["partition_strategy"].as_str().unwrap(), "RANGE (s)");
+    assert!(response["created_at"].is_string());
+
+    let columns = response["columns"].as_array().expect("columns should be an array");
+    assert!(columns.len() >= 6, "Expected at least 6 columns, got {}", columns.len());
+
+    let column_names: Vec<String> = columns
+        .iter()
+        .map(|c| c["column_name"].as_str().unwrap().to_string())
+        .collect();
+
+    assert!(column_names.contains(&"id".to_string()));
+    assert!(column_names.contains(&"d".to_string()));
+    assert!(column_names.contains(&"t".to_string()));
+    assert!(column_names.contains(&"p".to_string()));
+    assert!(column_names.contains(&"s".to_string()));
+    assert!(column_names.contains(&"c".to_string()));
 
     // Revert the dynamically generated migration
     let revert_res = client
