@@ -246,6 +246,14 @@ async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams
 }
 
 
+#[derive(QueryableByName, Serialize)]
+struct ColumnInfo {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    column_name: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    data_type: String,
+}
+
 #[derive(Deserialize)]
 struct PartitionParams {
     #[serde(rename = "type")]
@@ -256,7 +264,7 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
     let partition_type = params.partition_type.clone();
 
     if partition_type == "s" {
-        let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<ColumnInfo>, String> {
             let mut conn = establish_connection_to(None)?;
 
             #[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
@@ -280,9 +288,7 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
                 }
             }
 
-            if exists {
-                Ok("objects_s".to_string())
-            } else {
+            if !exists {
                 let up_sql = "CREATE TABLE objects_s (\n    id SERIAL,\n    d TIMESTAMP NOT NULL,\n    t TEXT NOT NULL,\n    p REAL NOT NULL,\n    s REAL NOT NULL,\n    c REAL NOT NULL,\n    PRIMARY KEY (id, s)\n) PARTITION BY RANGE (s);";
                 let down_sql = "DROP TABLE objects_s";
 
@@ -304,14 +310,18 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
 
                 conn.run_pending_migrations(migrations.clone())
                     .map_err(|e| format!("Failed to run dynamically generated migration: {}", e))?;
-
-                Ok("objects_s".to_string())
             }
+
+            let columns = diesel::sql_query("SELECT column_name::text, data_type::text FROM information_schema.columns WHERE table_name = 'objects_s' ORDER BY ordinal_position")
+                .load::<ColumnInfo>(&mut conn)
+                .map_err(|e| format!("Failed to retrieve schema: {}", e))?;
+
+            Ok(columns)
         })
         .await;
 
         match result {
-            Ok(Ok(table_name)) => (StatusCode::OK, table_name).into_response(),
+            Ok(Ok(columns)) => (StatusCode::OK, Json(columns)).into_response(),
             Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e)).into_response(),
         }
