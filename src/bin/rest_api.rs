@@ -246,6 +246,29 @@ async fn migrations_handler(params: Option<axum::extract::Query<MigrationsParams
 }
 
 
+#[derive(QueryableByName, Serialize)]
+struct ColumnInfo {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    column_name: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    data_type: String,
+}
+
+#[derive(QueryableByName)]
+struct StringResult {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    value: String,
+}
+
+#[derive(Serialize)]
+struct PartitionSchemaResponse {
+    table_name: String,
+    columns: Vec<ColumnInfo>,
+    primary_key: String,
+    partition_strategy: String,
+    created_at: String,
+}
+
 #[derive(Deserialize)]
 struct PartitionParams {
     #[serde(rename = "type")]
@@ -256,7 +279,7 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
     let partition_type = params.partition_type.clone();
 
     if partition_type == "s" {
-        let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let result = tokio::task::spawn_blocking(move || -> Result<PartitionSchemaResponse, String> {
             let mut conn = establish_connection_to(None)?;
 
             #[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
@@ -280,9 +303,7 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
                 }
             }
 
-            if exists {
-                Ok("objects_s".to_string())
-            } else {
+            if !exists {
                 let up_sql = "CREATE TABLE objects_s (\n    id SERIAL,\n    d TIMESTAMP NOT NULL,\n    t TEXT NOT NULL,\n    p REAL NOT NULL,\n    s REAL NOT NULL,\n    c REAL NOT NULL,\n    PRIMARY KEY (id, s)\n) PARTITION BY RANGE (s);";
                 let down_sql = "DROP TABLE objects_s";
 
@@ -304,14 +325,48 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
 
                 conn.run_pending_migrations(migrations.clone())
                     .map_err(|e| format!("Failed to run dynamically generated migration: {}", e))?;
-
-                Ok("objects_s".to_string())
             }
+
+            let columns = diesel::sql_query("SELECT column_name::text, data_type::text FROM information_schema.columns WHERE table_name = 'objects_s' ORDER BY ordinal_position")
+                .load::<ColumnInfo>(&mut conn)
+                .map_err(|e| format!("Failed to retrieve schema: {}", e))?;
+
+            let primary_key = diesel::sql_query("SELECT indexdef::text as value FROM pg_indexes WHERE tablename = 'objects_s' AND indexname = 'objects_s_pkey'")
+                .load::<StringResult>(&mut conn)
+                .map_err(|e| format!("Failed to retrieve primary key: {}", e))?
+                .into_iter()
+                .next()
+                .map(|r| r.value)
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let partition_strategy = diesel::sql_query("SELECT pg_get_partkeydef('objects_s'::regclass)::text as value")
+                .load::<StringResult>(&mut conn)
+                .map_err(|e| format!("Failed to retrieve partition strategy: {}", e))?
+                .into_iter()
+                .next()
+                .map(|r| r.value)
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let created_at = diesel::sql_query("SELECT run_on::text as value FROM __diesel_schema_migrations ORDER BY run_on DESC LIMIT 1")
+                .load::<StringResult>(&mut conn)
+                .map_err(|e| format!("Failed to retrieve creation timestamp: {}", e))?
+                .into_iter()
+                .next()
+                .map(|r| r.value)
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            Ok(PartitionSchemaResponse {
+                table_name: "objects_s".to_string(),
+                columns,
+                primary_key,
+                partition_strategy,
+                created_at,
+            })
         })
         .await;
 
         match result {
-            Ok(Ok(table_name)) => (StatusCode::OK, table_name).into_response(),
+            Ok(Ok(response)) => (StatusCode::OK, Json(response)).into_response(),
             Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Task failed: {}", e)).into_response(),
         }

@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.94s
+     Running `target/debug/rest_api`
+REST API server listening on 0.0.0.0:8081
+
+thread 'main' (128520) panicked at src/bin/rest_api.rs:474:50:
+called `Result::unwrap()` on an `Err` value: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
