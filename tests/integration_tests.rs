@@ -460,8 +460,14 @@ async fn test_rest_api_partition() {
         .expect("Failed to send request");
 
     assert_eq!(res.status(), reqwest::StatusCode::OK);
-    let columns: Vec<serde_json::Value> = res.json().await.expect("Failed to get JSON response");
+    let response: serde_json::Value = res.json().await.expect("Failed to get JSON response");
 
+    assert_eq!(response["table_name"].as_str().unwrap(), "objects_s");
+    assert!(response["primary_key"].as_str().unwrap().contains("PRIMARY KEY") || response["primary_key"].as_str().unwrap().contains("id, s"));
+    assert_eq!(response["partition_strategy"].as_str().unwrap(), "RANGE (s)");
+    assert!(response["created_at"].is_string());
+
+    let columns = response["columns"].as_array().expect("columns should be an array");
     assert!(columns.len() >= 6, "Expected at least 6 columns, got {}", columns.len());
 
     let column_names: Vec<String> = columns
