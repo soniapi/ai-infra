@@ -59,7 +59,7 @@ fn get_test_connection() -> PgConnection {
 fn test_divider_sql_positive() {
     let mut conn = get_test_connection();
     let (partition_name_below, partition_name_above, sql_below, sql_above) =
-        divider_sql(&mut conn, 5.5);
+        divider_sql(&mut conn, "s", 5.5);
     assert_eq!(partition_name_below, "objects_s_below_5.5");
     assert_eq!(partition_name_above, "objects_s_above_5.5");
     assert_eq!(
@@ -77,7 +77,7 @@ fn test_divider_sql_positive() {
 fn test_divider_sql_negative() {
     let mut conn = get_test_connection();
     let (partition_name_below, partition_name_above, sql_below, sql_above) =
-        divider_sql(&mut conn, -2.3);
+        divider_sql(&mut conn, "s", -2.3);
     assert_eq!(partition_name_below, "objects_s_below_-2.3");
     assert_eq!(partition_name_above, "objects_s_above_-2.3");
     assert_eq!(
