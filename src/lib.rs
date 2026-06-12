@@ -190,9 +190,10 @@ pub struct DdlResult {
 
 pub fn divider_sql(
     conn: &mut PgConnection,
+    partition_type: &str,
     divider_value: f32,
 ) -> (String, String, String, String) {
-    let partitioned_table = "objects_s";
+    let partitioned_table = format!("objects_{}", partition_type);
     let below = "_below_";
     let above = "_above_";
 
@@ -201,7 +202,7 @@ pub fn divider_sql(
 
     let sql_below = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (MINVALUE) TO (%L)', $1, $2, $3) as ddl")
         .bind::<diesel::sql_types::Text, _>(&partition_name_below)
-        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&partitioned_table)
         .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
         .load::<DdlResult>(conn)
         .expect("Failed to construct sql_below")
@@ -211,7 +212,7 @@ pub fn divider_sql(
 
     let sql_above = sql_query("SELECT format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (MAXVALUE)', $1, $2, $3) as ddl")
         .bind::<diesel::sql_types::Text, _>(&partition_name_above)
-        .bind::<diesel::sql_types::Text, _>(partitioned_table)
+        .bind::<diesel::sql_types::Text, _>(&partitioned_table)
         .bind::<diesel::sql_types::Text, _>(&divider_value.to_string())
         .load::<DdlResult>(conn)
         .expect("Failed to construct sql_above")
@@ -263,9 +264,9 @@ fn check_table_health(conn: &mut PgConnection, table_name: &str) -> bool {
     false
 }
 
-pub fn divider(connection: &mut PgConnection, divider_value: f32) {
+pub fn divider(connection: &mut PgConnection, partition_type: &str, divider_value: f32) {
     let (partition_name_below, partition_name_above, sql_below, sql_above) =
-        divider_sql(connection, divider_value);
+        divider_sql(connection, partition_type, divider_value);
 
     println!(
         "Partition names: {:?} and {:?}",

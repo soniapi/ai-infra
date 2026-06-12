@@ -270,6 +270,34 @@ struct PartitionSchemaResponse {
 }
 
 #[derive(Deserialize)]
+struct SplitParams {
+    #[serde(rename = "type")]
+    partition_type: String,
+    cutoff: f32,
+}
+
+async fn split_handler(params: axum::extract::Query<SplitParams>) -> impl IntoResponse {
+    let partition_type = params.partition_type.clone();
+    let cutoff = params.cutoff;
+
+    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut conn = establish_connection_to(None)?;
+        ai_infra::divider(&mut conn, &partition_type, cutoff);
+        Ok(())
+    })
+    .await
+    .unwrap();
+
+    match result {
+        Ok(_) => (axum::http::StatusCode::OK, "Partitions split successfully".to_string()),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Error splitting partitions: {}", e),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
 struct PartitionParams {
     #[serde(rename = "type")]
     partition_type: String,
@@ -509,6 +537,7 @@ async fn main() {
     let app = Router::new()
         .route("/upload", post(upload_handler))
         .route("/partition", axum::routing::get(partition_handler))
+        .route("/split", axum::routing::get(split_handler))
         .route("/info", axum::routing::get(info_handler))
         .route("/migrations", axum::routing::get(migrations_handler))
         .layer(DefaultBodyLimit::disable())
