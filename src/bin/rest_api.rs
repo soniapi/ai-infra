@@ -282,7 +282,27 @@ async fn split_handler(params: axum::extract::Query<SplitParams>) -> impl IntoRe
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut conn = establish_connection_to(None)?;
-        ai_infra::divider(&mut conn, &partition_type, cutoff);
+
+        let (up_sql, down_sql) = ai_infra::generate_partition_migration_sql(&mut conn, &partition_type, cutoff)?;
+
+        let now = chrono::Utc::now();
+        let dir_name = format!("migrations/{}_split_objects_{}", now.format("%Y%m%d%H%M%S"), partition_type);
+
+        std::fs::create_dir_all(&dir_name)
+            .map_err(|e| format!("Failed to create migration directory: {}", e))?;
+
+        std::fs::write(format!("{}/up.sql", dir_name), up_sql)
+            .map_err(|e| format!("Failed to write up.sql: {}", e))?;
+
+        std::fs::write(format!("{}/down.sql", dir_name), down_sql)
+            .map_err(|e| format!("Failed to write down.sql: {}", e))?;
+
+        let migrations = diesel_migrations::FileBasedMigrations::from_path("migrations")
+            .map_err(|e| format!("Error loading migrations: {}", e))?;
+
+        conn.run_pending_migrations(migrations.clone())
+            .map_err(|e| format!("Failed to run dynamically generated migration: {}", e))?;
+
         Ok(())
     })
     .await
@@ -337,7 +357,7 @@ async fn partition_handler(params: axum::extract::Query<PartitionParams>) -> imp
 
                 let now = chrono::Utc::now();
                 let _version_str = now.format("%Y%m%d%H%M%S").to_string();
-                let dir_name = format!("migrations/{}_create_objects_s", now.format("%Y-%m-%d-%H%M%S"));
+                let dir_name = format!("migrations/{}_create_objects_s", now.format("%Y%m%d%H%M%S"));
 
                 std::fs::create_dir_all(&dir_name)
                     .map_err(|e| format!("Failed to create migration directory: {}", e))?;
@@ -537,7 +557,7 @@ async fn main() {
     let app = Router::new()
         .route("/upload", post(upload_handler))
         .route("/partition", axum::routing::get(partition_handler))
-        .route("/split", axum::routing::get(split_handler))
+        .route("/split", axum::routing::post(split_handler))
         .route("/info", axum::routing::get(info_handler))
         .route("/migrations", axum::routing::get(migrations_handler))
         .layer(DefaultBodyLimit::disable())

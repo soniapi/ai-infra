@@ -297,3 +297,49 @@ pub fn divider(connection: &mut PgConnection, partition_type: &str, divider_valu
         .execute(connection)
         .expect("Partition can't be created");
 }
+
+#[derive(diesel::query_builder::QueryId, diesel::QueryableByName)]
+pub struct PartitionResult {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub partition_name: String,
+}
+
+pub fn generate_partition_migration_sql(connection: &mut PgConnection, partition_type: &str, divider_value: f32) -> Result<(String, String), String> {
+    let (partition_name_below, partition_name_above, sql_below, sql_above) =
+        divider_sql(connection, partition_type, divider_value);
+
+    let parent_table = format!("objects_{}", partition_type);
+
+    let mut up_sql = String::new();
+    let mut down_sql = String::new();
+
+    // Query existing partitions
+    if let Ok(partitions) = sql_query(
+        "SELECT child.relname::text AS partition_name
+         FROM pg_inherits
+         JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+         JOIN pg_class child  ON pg_inherits.inhrelid  = child.oid
+         WHERE parent.relname = $1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&parent_table)
+    .load::<PartitionResult>(connection)
+    {
+        for p in partitions {
+            let drop_stmt = format!("DROP TABLE IF EXISTS \"{}\";\n", p.partition_name.replace('"', "\"\""));
+            up_sql.push_str(&drop_stmt);
+            // Ideally we'd recreate the old partitions in the down_sql, but because we
+            // are wiping them dynamically, a perfect reverse is complex. At minimum we must drop
+            // the new partitions we are about to create.
+        }
+    }
+
+    // Append creation of new partitions to up_sql
+    up_sql.push_str(&format!("{};\n", sql_below));
+    up_sql.push_str(&format!("{};\n", sql_above));
+
+    // For down_sql, we drop the newly created partitions
+    down_sql.push_str(&format!("DROP TABLE IF EXISTS \"{}\";\n", partition_name_below.replace('"', "\"\"")));
+    down_sql.push_str(&format!("DROP TABLE IF EXISTS \"{}\";\n", partition_name_above.replace('"', "\"\"")));
+
+    Ok((up_sql, down_sql))
+}
